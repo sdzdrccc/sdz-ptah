@@ -107,5 +107,5 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
   可选外链 `ai-anime-avatar/outputs/AI动漫头像生成方案.md` 仅补充设计说明。
   两者冲突且方案文档可访问时以方案文档为准，并同步修正 protocol.md。
 - 源码唯一真相在仓库 `skills/sdz-ptah-avatar/`；装到本机全局用
-  `powershell -ExecutionPolicy Bypass -File skills\install.ps1`（默认符号链接，
-  无权限时自动回退复制）。不要直接改全局目录里的副本。
+  `python skills/install.py`（默认符号链接，无权限时自动回退复制）。
+  不要直接改全局目录里的副本。
