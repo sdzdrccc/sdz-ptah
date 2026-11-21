@@ -1,0 +1,14 @@
+# TRAE 本地工作区配置，不入库
+.trae/
+
+# 本地截图与临时缓存
+.screenshots/
+__pycache__/
+*.pyc
+
+# 生成的验证输出：体积大（单轮约 35 MB）且可由 avatar_pipeline.py 完整复现
+ai-anime-avatar/verify/out/
+ai-anime-avatar/verify/out_global/
+ai-anime-avatar/verify/out_installed/
+ai-anime-avatar/verify/out_4k_probe/
+ai-anime-avatar/verify/control_out/
