@@ -390,11 +390,79 @@ E 没有可调参数，所以「参数基线」变成「生成协议」——规
 | 环节 | 当前状态 | 说明 |
 |-|-|-|
 | 自动裁切 | **启用** | 核心环节，见 3.2 |
-| 按需超分 | **启用（按需）** | 裁切后短边 < 1024 时用 Real-ESRGAN anime / 4x-AnimeSharp，再 Lanczos 下采样到 1024 |
+| 按需超分 | **启用（当前仅 Lanczos）** | 本机只有 Pillow Lanczos；Real-ESRGAN / waifu2x 等四条路线见 3.7，缺依赖一律回退 Lanczos |
 | 轻锐化 | **启用（按需）** | USM 半径小、量轻（约 0.3），仅放大后偏软时用 |
 | 局部重绘修脸（ADetailer） | **升级后启用** | E 无图生图入口，眼部瑕疵只能重抽 |
 | 4× 放大 + 高清重绘（hires fix） | **升级后启用** | E 原生 1920，裁到 1024 是降采样，不需要 |
 | 多尺寸导出 | **启用** | 1024/640/512/360/256/200 + 圆形预览 |
+
+### 3.7 高清放大四类路线（2K / 4K）
+
+**先给结论**：头像是小尺寸展示物（多数平台 200–640px），**4K 属于锦上添花，不是默认产出**。默认策略是 **2K 用 Lanczos**；只有明确要 4K 且要求「增细节」时，才走动漫专用超分；生成式重绘只在必要且能把 denoise 限死时使用。任何超分后端缺失，一律回退 Lanczos，并在 manifest 记录回退原因。
+
+当前机器实测条件（写方案时核实）：GTX 1660 SUPER / 6 GB 显存；Python 侧只有 Pillow，`numpy / torch / cv2 / onnxruntime / realesrgan / basicsr / diffusers` 均未安装；`realesrgan-ncnn-vulkan`、`waifu2x-ncnn-vulkan` 未安装；有 `ffmpeg`，无 ImageMagick。下表的「本地可做」按这个基线判断。
+
+#### 3.7.1 路线一：传统插值（Lanczos / Bicubic）
+
+| 维度 | 内容 |
+|-|-|
+| 原理 | 用邻域像素做加权卷积重采样，只补过渡像素，**不创造任何新信息**。 |
+| 动漫适配度 | 对平涂最安全：不会凭空加纹理、不会改线；代价是细线被软化，放大倍率越大越明显。 |
+| 本地/外部 | **本地可做**。依赖：仅 Pillow（已具备）。速度：1024→4096 单张约 1–2 秒（纯 CPU），1024→2048 更快。无外部服务。 |
+| 风险 | 不改脸、不加噪；但 >2× 放大观感明显变软。构图比例量不变，**无需重算构图**；锐度与 96px 可读性必须复检（脚本已对最大档做复检）。 |
+| 参数建议 | 优先 2×（1024→2048）。要 4K 时先 2× 再一次性 Lanczos 到 4096，不要连续多次重采样。降采样固定 Lanczos；仅当偏软时加极轻 USM（半径 0.3–0.5、量 3–8%）。 |
+| skill 接入 | `upscale.backend = "lanczos"`（默认）。manifest 记 `detail_added=false`。这是所有后端的最终回退位。 |
+
+#### 3.7.2 路线二：动漫专用超分（Real-ESRGAN anime / waifu2x）
+
+| 维度 | 内容 |
+|-|-|
+| 原理 | 在动漫图像对上训练的 CNN/GAN 超分，按「平涂 + 描线」先验补线、压锯齿。 |
+| 动漫适配度 | **最匹配**平涂与细线：能补回被压缩或放大糊掉的线稿与边缘。对高密度厚涂/颗粒质感可能过度锐化。 |
+| 本地/外部 | **本地可做（需先安装）**。① ncnn-vulkan 可执行版：Windows exe + Vulkan，本机 6 GB 显卡够用；1024→2048 约 1–3 秒、→4096 约 5–15 秒；CPU 也可跑但慢 5–10 倍。② Python 版（realesrgan/basicsr）：需 torch + CUDA/DirectML，6 GB 需开 tiling。当前均未安装。 |
+| 外部接口 | 通常不需要。若用云 GPU，按 GPU 秒/分钟计费；上传的是裁切后母版，不含 prompt，但角色图可能被视为作品资产，外发前需确认版权与条款。 |
+| 风险 | 可能把平涂轻微纹理化、把线加粗或产生光晕；强 GAN 权重有低概率改动眼型/发丝走向。构图比例不变，但**锐度、噪点、96px 可读性、800px 眼部**都要复检；保留原图做 A/B。 |
+| 参数建议 | 倍率 2× 优先，4× 仅在需要时。模型：偏保真用 `realesr-animevideov3`（`-s 2` 或 `4`），偏细节用 `RealESRGAN_x4plus_anime_6B`。超分后统一用 Lanczos 降采样到目标尺寸；不要叠加 USM，或只加极轻量。 |
+| skill 接入 | `upscale.backend = "realesrgan-anime"` 或 `"waifu2x"`；参数 `{model, scale, tile, device}`。缺 exe/torch 时自动回退 `lanczos`，manifest 写 `fallback_from` / `fallback_reason`。 |
+
+#### 3.7.3 路线三：通用 AI 超分（SwinIR、4x-UltraSharp、Topaz、Magnific）
+
+| 维度 | 内容 |
+|-|-|
+| 原理 | 用自然图像先验（Transformer/CNN 或商业模型）「脑补」高频细节，不区分平涂与实拍。 |
+| 动漫适配度 | 中等偏下：平涂可能被补出不该有的皮肤颗粒/纹理，细线可能变粗或带光晕；比赛璐璐专用模型更容易「AI 味」。 |
+| 本地/外部 | **SwinIR / 4x-UltraSharp 本地可做（需装 torch 或 ONNX）**：6 GB 显存需 256–512 tile + 16–32 overlap，4K 单张约数十秒到分钟级。**Topaz（Gigapixel / Photo AI）是本地商业软件**，需授权，命令行能力有限。**Magnific 是云端 SaaS**，按订阅/积分计费，需上传母版，数据外发与商用条款要单独确认。 |
+| 风险 | **最容易改脸**（五官细节被重绘）、平涂出噪点或塑料感。放大后构图比例不变，但必须重过 96px 可读性、噪点与 800px 眼部检查，并做人工 A/B。 |
+| 参数建议 | 2× 优先，4× 后 Lanczos 降到目标。SwinIR tile 256–512、overlap 16–32；4x-UltraSharp 结果可按 0.8–0.9 与原图混合以降「AI 味」；不叠加锐化。 |
+| skill 接入 | `upscale.backend = "swinir" / "ultrasharp" / "topaz" / "magnific"`；外部服务必须显式 `consent_external=true` 并提供 `endpoint/api_key`，否则拒绝外发并回退 Lanczos。 |
+
+#### 3.7.4 路线四：生成式重绘放大（SD tile + 低 denoise）
+
+| 维度 | 内容 |
+|-|-|
+| 原理 | 把图切 tile 做低强度图生图，让模型按提示补细节，再拼接回整图。 |
+| 动漫适配度 | 能补细节但最不稳定：平涂容易被加纹理，细线可能断线/重连；头像的五官是最敏感区域，**默认不启用**。 |
+| 本地/外部 | **本地门槛最高**：需 ComfyUI/A1111 + torch + SD1.5/SDXL 模型。6 GB 显存基本只能 SD1.5 + 512 tile（overlap 64），SDXL 很吃力；1024→2048 单张约 30–120 秒。也可用云 ComfyUI/RunPod，按 GPU 分钟计费，需上传母版，可能还要上传 LoRA/ControlNet，外发风险最高。 |
+| 风险 | **改脸风险最高**。必须限制 denoise、tile 重叠、并用 mask 排除眼/鼻/嘴；放大后构图比例不变，但**必须逐张人工看眼**，并重过可读性/噪点检查。 |
+| 参数建议 | denoise **0.15–0.25，硬上限 0.25**（>0.35 基本必改脸）；tile 512/768、overlap 64–128；只对背景/头发等非五官区域开重绘；以 2× 为主，不做一次到位 4×；拼接后 Lanczos 下采样到目标。 |
+| skill 接入 | `upscale.backend = "sd-tile"`，`denoise` 必填且超过 0.25 直接拒绝；缺模型回退 Lanczos。manifest 必须记 `detail_added=true` 与「需人工复核」标记。 |
+
+#### 3.7.5 四类路线对比
+
+| 路线 | 是否本地 | 依赖 | 是否增细节 | 头像适用度 | 推荐场景 |
+|-|-|-|-|-|-|
+| Lanczos / Bicubic | 是 | Pillow（已具备） | 否 | 高（安全、可预期） | **2K 默认**；4K 只求尺寸、不求细节 |
+| Real-ESRGAN anime / waifu2x | 是（需安装） | Vulkan exe 或 torch；6 GB 可 | 是（补线、压锯齿） | **最高** | **4K 要增细节时的首选** |
+| SwinIR / 4x-UltraSharp | 是（需装 torch/ONNX） | torch/ONNX + tiling | 是（通用脑补） | 中 | 动漫专用不可用时的备选，需 A/B |
+| Topaz / Magnific | Topaz 本地 / Magnific 云端 | 商业授权 / SaaS 订阅 | 是 | 中（易改脸） | 有人工复核、且接受付费与条款时 |
+| SD tile 重绘（低 denoise） | 是（需 ComfyUI+模型）/ 云端 | torch + SD1.5/SDXL；6 GB 吃力 | 是（生成式） | 低（风险最高） | **仅在必要且 denoise ≤0.25 时**，修背景/发丝而非五官 |
+
+#### 3.7.6 接入约定与复检要求
+
+- **后端取值**：`upscale.backend ∈ {lanczos, realesrgan-anime, waifu2x, swinir, ultrasharp, topaz, magnific, sd-tile}`，默认 `lanczos`。brief 不写则按默认。
+- **回退链**：请求的后端 → 依赖/授权/外发同意任一不满足 → `lanczos`；manifest 记 `backend_requested`、`backend_used`、`fallback_reason`、`detail_added`。
+- **必须复检**：构图三项（`face_ratio` / `eye_center_y` / `edge_margin`）是比例量，放大前后不变，**无需重算**；锐度、96px 可读性、噪点必须复检；任何 `detail_added=true` 的后端还要加 800px 眼部检查与人工抽检。
+- **默认产出**：交付母版 1024 PNG + 2K（Lanczos）；4K 仅在被明确要求时生成，且 manifest 标注 `soft_4k`（`detail_added=false`）或实际使用的增细节后端。
 
 ---
 
