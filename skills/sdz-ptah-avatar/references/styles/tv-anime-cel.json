@@ -1,0 +1,89 @@
+{
+  "schema": "style-profile/1.0",
+  "style_id": "tv-anime-cel",
+  "display_name": "TV 动画赛璐璐",
+  "version": "1.1.0",
+  "status": "active",
+  "source": {
+    "type": "reference-images",
+    "note": "依据 12 格 TV 动画截图（小智）提取；参考图仅本地留存，路径 ai-anime-avatar/基准/风格参考/，不入公开仓库",
+    "reference_count": 2
+  },
+  "prompt_anchor": "1990 年代日本 TV 动画赛璐璐风格，干净细线稿，平涂上色，硬边双层阴影，无渐变、无厚涂、无 3D 渲染；肤色暖调，主色明快但不过饱和，画面保持平面感",
+  "line": {
+    "weight_px_at_1024": [2, 3],
+    "color": "#2b211d",
+    "color_note": "深棕黑，不是纯黑；外轮廓略粗，发丝与脸颊纹用更细的线",
+    "style": "连续闭合线稿，转角干净，不做铅笔毛边"
+  },
+  "shading": {
+    "layers": 2,
+    "gradient": false,
+    "note": "底色 + 一层硬边暗部；头发、衣服各 2 个色阶；高光只用小块纯色，不做喷枪渐变",
+    "highlight": "眼睛一点白色高光 + 头发一条浅色高光带"
+  },
+  "palette": {
+    "saturation_tendency": "中高饱和，肤色暖、红蓝主色明确，背景降饱和",
+    "value_tendency": "明快，暗部不死黑",
+    "max_main_colors": 8,
+    "anchor_colors": ["#f0c39a", "#d94b3f", "#2f5fa8", "#f4f2ec", "#20262a"]
+  },
+  "face": {
+    "eyes": "大眼，杏仁形；上眼睑粗黑线，白色眼白，琥珀/棕色虹膜 + 黑色瞳孔 + 一点白高光；虹膜近圆形，不画写实反光",
+    "brows": "黑色粗眉，外侧上挑，眉形明确",
+    "nose": "小点或短楔形阴影，不画鼻孔",
+    "mouth": "单线嘴形；张口时用红色平涂口腔，不画牙齿细节",
+    "proportions": "儿童/少年比例：眼大、鼻嘴小、下巴圆；脸宽约为头宽（含发）的 0.55–0.65，头身比约 1:5"
+  },
+  "background": {
+    "mode": "flat",
+    "allowed": ["flat_plain", "soft_gradient", "dark_solid"],
+    "note": "参考截图是 TV 场景绘景（天空/体育场），头像交付不复刻场景；只保留平涂、轻渐变或纯暗底，并铺满方形画布至四边",
+    "forbidden": ["写实场景", "高噪点纹理", "文字与水印", "圆形画框", "装饰边框"]
+  },
+  "canvas": {
+    "aspect": "1:1",
+    "bleed": true,
+    "frame": false,
+    "circular_mask": false,
+    "crop_export": "square",
+    "prompt_clause": "square canvas, no border, no frame, no circular mask, edge-to-edge",
+    "note": "画布与导出一律方形；禁止圆形徽章/画框/装饰圈；背景铺满四边，不靠留白制造边框"
+  },
+  "prompt_forbidden": [
+    "3D 渲染", "写实皮肤", "厚涂油画", "赛博霓虹", "大面积渐变光效", "复杂场景背景"
+  ],
+  "gate": {
+    "palette_colors": [5, 13],
+    "saturation": [0.08, 0.62],
+    "edge_density": [0.015, 0.10],
+    "background_stddev_max": 20,
+    "background_modes": ["flat", "simple"],
+    "note": "粗指标只拦明显异体系（主色失控/饱和度异常/无线稿边缘/背景嘈杂），不能替代人眼判断画风是否贴。背景门槛按头像交付口径（平涂/轻渐变），TV 截图本身的绘景背景不参与该项校准。"
+  },
+  "calibration": {
+    "method": "参考图 12 格 + 两张已有小智成品，不出图直接计算；palette 用 12 色量化、占比 ≥3.5% 计主色，取并集后外扩",
+    "measured": {
+      "reference_12_cells": {
+        "palette_colors": [9, 12],
+        "saturation": [0.270, 0.582],
+        "edge_density": [0.019, 0.059],
+        "background_mode": "busy/simple（TV 绘景，不用于交付背景门槛）"
+      },
+      "existing_xiaozhi_outputs": {
+        "palette_colors": [7, 7],
+        "saturation": [0.089, 0.217],
+        "edge_density": [0.045, 0.063],
+        "background_mode": "flat"
+      },
+      "profile_demo_2_outputs": {
+        "palette_colors": [8, 9],
+        "saturation": [0.244, 0.304],
+        "edge_density": [0.071, 0.075],
+        "background_share": [0.485, 0.606],
+        "background_stddev": [2.1, 5.2],
+        "background_mode": "flat"
+      }
+    }
+  }
+}

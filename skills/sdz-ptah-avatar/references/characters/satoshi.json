@@ -1,0 +1,54 @@
+{
+  "schema": "character-card/1.1",
+  "character_id": "satoshi",
+  "display_name": "小智（Satoshi）",
+  "style_id": "tv-anime-cel",
+  "gender": "male",
+  "version": "1.1.0",
+  "source": {
+    "type": "reference-images",
+    "note": "依据 12 格 TV 动画截图提取；只保留可文字化的外形特征，不包含剧情与设定",
+    "reference_count": 2
+  },
+  "hair": {
+    "color": "黑色，带极轻的深青绿反光",
+    "direction": "额前一撮大刘海向左/右分叉压住额头；两侧鬓发向外炸开并盖住耳朵；后脑向上、向后收",
+    "tufts": "可见发绺 7–9 束：额前 2–3、两侧各 2–3、顶部 2",
+    "note": "发梢尖锐、成束，不画成柔软碎发；帽子压住头顶，鬓发从帽檐下伸出"
+  },
+  "headwear": {
+    "type": "棒球帽",
+    "shape": "红色帽体 + 红色帽檐，正面一块白色前片；帽顶略圆，帽檐中等长度",
+    "logo": "白色前片中央一个深蓝/黑色折线徽标（近似简化 Pokéball 图案），不要文字",
+    "note": "帽子必须压在头发上，帽檐下缘在眉毛上方，不遮眼"
+  },
+  "outfit": {
+    "palette": ["#2f5fa8 蓝色外套", "#f4f2ec 白色内搭/领口", "#2b3b46 深色包边"],
+    "collar": "白色立领/翻领从蓝色外套里露出，领口干净",
+    "sleeves": "短袖蓝色外套，袖口有深色包边；部分画面有绿色半指手套",
+    "note": "头像只露肩线以上，重点保证蓝色外套 + 白色领口这组对比"
+  },
+  "face": {
+    "shape": "儿童圆脸，脸颊略鼓，下巴短而圆",
+    "age": "10–12 岁少年感，不要画成青年或成人",
+    "skin": "暖调小麦色，平涂 + 一层硬边阴影",
+    "eyes": "大眼、琥珀棕虹膜、黑色粗上眼睑",
+    "brows": "黑色粗眉，略上挑"
+  },
+  "signature": {
+    "cheek_marks": "两颊各有 3 条短促的闪电状斜线（脸颊纹），颜色比肤色深一阶",
+    "hair_spikes": "两侧外炸的尖发绺是最强识别点",
+    "cap_logo": "红白帽 + 深色折线徽标"
+  },
+  "prompt_block": "黑色尖刺短发、两侧鬓发外炸盖耳、额前一撮分叉刘海；红色棒球帽配白色前片与深蓝折线徽标；暖调小麦色皮肤；蓝色短袖外套配白色领口；琥珀棕大眼、黑色粗眉；两颊各有三道短闪电状脸颊纹；10–12 岁少年脸型",
+  "checklist": [
+    {"key": "hair_black_spiky", "label": "黑色尖刺短发 + 两侧外炸鬓发", "required": true},
+    {"key": "cap_red_white", "label": "红色棒球帽 + 白色前片", "required": true},
+    {"key": "cap_logo", "label": "帽前深色折线徽标（无文字）", "required": true},
+    {"key": "outfit_blue_white", "label": "蓝色外套 + 白色领口", "required": true},
+    {"key": "skin_tan", "label": "暖调小麦色皮肤", "required": true},
+    {"key": "eyes_amber_brown", "label": "琥珀棕大眼 + 黑色粗上眼睑", "required": true},
+    {"key": "cheek_marks", "label": "脸颊闪电状纹（侧脸只查可见侧）", "required": true},
+    {"key": "age_childlike", "label": "10–12 岁少年脸型", "required": true}
+  ]
+}

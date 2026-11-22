@@ -1,0 +1,126 @@
+{
+  "schema": "angle-matrix/1.2",
+  "version": "1.3.0",
+  "current_scope": "profile_left_right",
+  "default_rule": {
+    "by_gender": {
+      "male": "profile_left",
+      "female": "profile_right",
+      "unspecified": "profile_left"
+    },
+    "gender_source": "用户明确说明 > 角色卡 gender 字段 > unspecified",
+    "override": "用户在会话或确认页手动指定朝左/朝右时，以用户为准",
+    "unspecified_note": "未指定性别时一律默认朝左，不从参考图推断性别；确认页必须提示「未指定性别，已按朝左」",
+    "undetermined": "角度判定判不出方向时返回 angle_undetermined：FAIL 并暂停，交人工确认，不自动猜测"
+  },
+  "scope_note": "侧脸朝左、朝右均启用。默认朝向按性别：男左、女右、未指定默认左；用户可手动覆盖。正脸、3/4、仰俯仍为预留项，不实现、不产出、不测试。执行时不得自行扩范围。",
+  "detection": {
+    "method": "visible_eyes + pupil_edge + nose_side + eye_y（双向）",
+    "single_eye_required": true,
+    "pupil_edge_left_max": 0.42,
+    "pupil_edge_right_min": 0.58,
+    "facing_convention": "朝左 = 可见眼位于头部框左半（pupil_edge ≤0.42）且肤色重心/鼻尖侧偏左；朝右 = 可见眼位于右半（pupil_edge ≥0.58）且肤色重心/鼻尖侧偏右。瞳孔与鼻尖侧交叉校验，冲突或缺失判方向未定。",
+    "calibration": "实测：朝左样本 pupil_edge=0.178，朝右样本 pupil_edge=0.789；两向阈值以 0.42 / 0.58 分开，中间带判为未定。",
+    "note": "无眼白回退时方向未知，返回 angle_undetermined，需人工确认；角度闸门不实现正脸 / 3-4 分支。"
+  },
+  "canvas": {
+    "aspect": "1:1",
+    "bleed": true,
+    "frame": false,
+    "circular_mask": false,
+    "prompt_clause": "square canvas, no border, no frame, no circular mask, edge-to-edge"
+  },
+  "angles": [
+    {
+      "id": "profile_left",
+      "label": "侧脸左（鼻尖在左、耳朵在右）",
+      "family": "profile",
+      "yaw": "left",
+      "enabled": true,
+      "visible_eyes": [1, 1],
+      "pupil_edge": [0.0, 0.42],
+      "nose_side": "left",
+      "eye_y": [0.32, 0.46],
+      "prompt": "接近正侧脸，脸朝画面左侧约 70–90 度，鼻尖在左、耳朵在右，只出现一只眼睛、一只耳朵；鼻梁另一侧不画第二只眼、眼白或眉毛；肩线完整入镜",
+      "forbid": "不要出现远侧眼睛、眼白、眉毛；不要画成四分之三脸或正脸；不要加圆形画框或装饰圈"
+    },
+    {
+      "id": "profile_right",
+      "label": "侧脸右（鼻尖在右、耳朵在左）",
+      "family": "profile",
+      "yaw": "right",
+      "enabled": true,
+      "visible_eyes": [1, 1],
+      "pupil_edge": [0.58, 1.0],
+      "nose_side": "right",
+      "eye_y": [0.32, 0.46],
+      "prompt": "接近正侧脸，脸朝画面右侧约 70–90 度，鼻尖在右、耳朵在左，只出现一只眼睛、一只耳朵；鼻梁另一侧不画第二只眼、眼白或眉毛；肩线完整入镜",
+      "forbid": "不要出现远侧眼睛、眼白、眉毛；不要画成四分之三脸或正脸；不要加圆形画框或装饰圈"
+    },
+    {
+      "id": "frontal",
+      "label": "正脸（预留，暂不产出）",
+      "family": "frontal",
+      "yaw": "front",
+      "enabled": false,
+      "status": "reserved",
+      "visible_eyes": [2, 2],
+      "pupil_edge": [0.38, 0.62],
+      "eye_y": [0.12, 0.36],
+      "prompt": "预留：未来版本再定义",
+      "forbid": "当前不执行"
+    },
+    {
+      "id": "three_quarter_left",
+      "label": "3/4 左（预留，暂不产出）",
+      "family": "three_quarter",
+      "yaw": "left",
+      "enabled": false,
+      "status": "reserved",
+      "visible_eyes": [2, 2],
+      "pupil_edge": [0.38, 0.62],
+      "eye_y": [0.12, 0.38],
+      "prompt": "预留：未来版本再定义",
+      "forbid": "当前不执行"
+    },
+    {
+      "id": "three_quarter_right",
+      "label": "3/4 右（预留，暂不产出）",
+      "family": "three_quarter",
+      "yaw": "right",
+      "enabled": false,
+      "status": "reserved",
+      "visible_eyes": [2, 2],
+      "pupil_edge": [0.38, 0.62],
+      "eye_y": [0.12, 0.38],
+      "prompt": "预留：未来版本再定义",
+      "forbid": "当前不执行"
+    },
+    {
+      "id": "frontal_slight_up",
+      "label": "正脸轻微仰拍（预留，暂不产出）",
+      "family": "frontal",
+      "yaw": "front",
+      "enabled": false,
+      "status": "reserved",
+      "visible_eyes": [2, 2],
+      "pupil_edge": [0.38, 0.62],
+      "eye_y": [0.16, 0.40],
+      "prompt": "预留：未来版本再定义",
+      "forbid": "当前不执行"
+    },
+    {
+      "id": "frontal_slight_down",
+      "label": "正脸轻微俯拍（预留，暂不产出）",
+      "family": "frontal",
+      "yaw": "front",
+      "enabled": false,
+      "status": "reserved",
+      "visible_eyes": [2, 2],
+      "pupil_edge": [0.38, 0.62],
+      "eye_y": [0.10, 0.33],
+      "prompt": "预留：未来版本再定义",
+      "forbid": "当前不执行"
+    }
+  ]
+}
