@@ -106,6 +106,6 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 - 阈值、权重、原因码的权威来源是本 skill 内的 `references/protocol.md`；
   可选外链 `ai-anime-avatar/outputs/AI动漫头像生成方案.md` 仅补充设计说明。
   两者冲突且方案文档可访问时以方案文档为准，并同步修正 protocol.md。
-- 源码唯一真相在仓库 `skills/sdz-ptah-avatar/`；装到本机全局用
-  `python skills/install.py`（默认符号链接，无权限时自动回退复制）。
-  不要直接改全局目录里的副本。
+- 源码唯一真相在仓库 `skills/sdz-ptah-avatar/`；装到 TRAE 的全局技能目录用
+  `python skills/install.py`（默认符号链接，无权限时自动回退复制）；
+  装到其他宿主用 `--target <其技能目录>`。不要直接改已安装副本。

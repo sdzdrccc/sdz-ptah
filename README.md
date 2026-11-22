@@ -24,11 +24,26 @@
 python skills/install.py
 ```
 
-安装到 `%USERPROFILE%\.trae-cn\skills\sdz-ptah-avatar\`，本机所有工作区与 agent 都能加载。
+默认安装到 TRAE 的全局技能目录 `%USERPROFILE%\.trae-cn\skills\sdz-ptah-avatar\`。
+这个路径由 TRAE 规定、不能自选；装好后本机所有 TRAE 工作区与 agent 会话都能加载。
 
 - 默认优先创建符号链接，改源码立即生效；
 - Windows 无创建符号链接权限时自动回退为复制；
 - **本机当前是复制模式**，改完 `skills/sdz-ptah-avatar/` 下的源码后需要重新执行上面的脚本同步。
+
+装到其他宿主：
+
+```bash
+# 只扫描并打印本机实际存在的宿主技能目录，不安装
+python skills/install.py --detect
+
+# 装到指定宿主的技能目录：<target>/sdz-ptah-avatar/
+python skills/install.py --target ~/.codex/skills
+```
+
+本机实测检测到 `skills/` 的宿主目录：`.trae-cn`（默认）、`.agents`、`.cc-switch`、`.codex`、
+`.hub`、`.qoder-cn`、`.qoderwork`、`.qwenworkcn`、`.stepfun`、`.workbuddy`、
+`.workbuddy-ai`、`.config/mimocode`。默认安装只写 TRAE 的 `.trae-cn\skills\`，其他目录未写入。
 
 ## 使用
 
