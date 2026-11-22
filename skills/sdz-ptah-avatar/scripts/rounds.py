@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""轮次与预算台账：交付后满意度回访、改进方向解析、按轮产物目录。
+"""轮次与预算台账：交付后满意度回访、改进方向解析、按轮元数据记录。
 
 改进方向目录来自 ../references/feedback.json，脚本内不硬编码方向。
+轮次只记元数据，不创建子目录；图片在订单根平铺。
 
 用法：
   # 查看预算余额（余额 <=0 退出码 5）
@@ -11,9 +12,10 @@
   # 解析改进方向，输出落到 prompt 的措辞（不生成、不记账）
   py -3 rounds.py --order <订单目录> --preview --directions composition,detail
 
-  # 记录一轮（自动创建 raw/round_XX 与 out/round_XX）
+  # 记录一轮（只写 rounds.json，不建目录）
   py -3 rounds.py --order <订单目录> --record --round 2 --count 2 \
-        --directions composition,detail --satisfaction unsatisfied
+        --directions composition,detail --satisfaction unsatisfied \
+        --files satoshi-avatar-3.png,satoshi-avatar-4.png
 
   # 回填满意度
   py -3 rounds.py --order <订单目录> --set-satisfaction --round 1 \
@@ -231,7 +233,7 @@ def do_preview(order_dir, budget, ids, catalog, available):
 
 
 def do_record(order_dir, budget, round_no, count, ids, catalog, available,
-              satisfaction, allow_over):
+              satisfaction, allow_over, files=None):
     if not os.path.isdir(order_dir):
         print("订单目录不存在: %s" % order_dir)
         return EXIT_INPUT
@@ -258,10 +260,6 @@ def do_record(order_dir, budget, round_no, count, ids, catalog, available,
               "--allow-over-budget（并可用 --budget 调整上限）。")
         return EXIT_BUDGET
 
-    tag = "round%02d" % round_no
-    round_dir = os.path.join(order_dir, tag)
-    os.makedirs(round_dir, exist_ok=True)
-
     entry = {
         "round": round_no,
         "count": count,
@@ -269,9 +267,7 @@ def do_record(order_dir, budget, round_no, count, ids, catalog, available,
         "budget_used": used + count,
         "generated_at": now_text(),
         "satisfaction": satisfaction or "pending",
-        "round_dir": tag,
-        "raw_dir": tag,
-        "out_dir": tag,
+        "files": files or [],
     }
     data["rounds"].append(entry)
     prior_pending = [int(r.get("round") or 0) for r in data["rounds"]
@@ -355,6 +351,8 @@ def main():
     ap.add_argument("--count", type=int, help="本轮生成张数")
     ap.add_argument("--directions", default="",
                     help="改进方向 id，逗号分隔")
+    ap.add_argument("--files", default="",
+                    help="本轮文件名，逗号分隔（可选，便于回查）")
     ap.add_argument("--satisfaction", choices=SATISFACTIONS,
                     help="satisfied / unsatisfied")
     ap.add_argument("--budget", type=int, help="覆盖预算上限（默认读 brief/台账）")
@@ -395,9 +393,10 @@ def main():
                 print("--record 需要 --round")
                 return EXIT_INPUT
             count = args.count if args.count is not None else 2
+            file_list = [f.strip() for f in args.files.split(",") if f.strip()]
             return do_record(args.order, args.budget, args.round, count, ids,
                              catalog, available, args.satisfaction,
-                             args.allow_over_budget)
+                             args.allow_over_budget, file_list)
         if args.round is None:
             print("--set-satisfaction 需要 --round")
             return EXIT_INPUT

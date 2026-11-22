@@ -6,8 +6,9 @@
 规则、阈值、原因码与放大说明见 ../references/protocol.md。
 
 用法：
-  py -3 avatar_pipeline.py --raw <原始图目录> --out <输出目录> \
+  py -3 avatar_pipeline.py --raw <订单目录> [--prefix satoshi] \
         [--brief brief.json] [--formats 1024,2k,4k] [--jpg] [--jpg-quality 88]
+  旧订单复跑：--raw <订单>/raw --out <订单>/out --layout legacy
 """
 
 import argparse
@@ -21,7 +22,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.8.1"
+VERSION = "1.9.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -1627,12 +1628,23 @@ def _canon_round(value):
     return v.lower()
 
 
-def resolve_round(name, path, cli_round=None, brief_round=None):
-    """返回 (轮次键, 来源)。优先级：--round > brief.round > 文件名 rN/roundN > 父目录。
+def resolve_round_meta(cli_round=None, brief_round=None):
+    """flat 结构的轮次只来自元数据：--round > brief.round。
 
-    命名约定 <angle>_v<variant>_r<round>：vN 只是变体标识，不参与轮次识别；
-    同时出现 v 与 r 时以 r 为准；只有 v 时继续退到目录名，不拿 v 顶替。
-    都取不到时返回 ("__batch__", "unknown")，由调用方打印警告。
+    文件名与目录都不再带轮次，因此取不到时返回 ("__batch__", "unknown")，
+    由调用方打印告警，不得从文件名或父目录猜。
+    """
+    for value, source in ((cli_round, "cli"), (brief_round, "brief")):
+        key = _canon_round(value)
+        if key:
+            return key, source
+    return "__batch__", "unknown"
+
+
+def resolve_round_legacy(name, path, cli_round=None, brief_round=None):
+    """旧结构（legacy）轮次解析：--round > brief.round > 文件名 > 父目录。
+
+    只用于复跑历史订单；新订单的 flat 结构只用 resolve_round_meta。
     """
     for value, source in ((cli_round, "cli"), (brief_round, "brief")):
         key = _canon_round(value)
@@ -1650,52 +1662,87 @@ def resolve_round(name, path, cli_round=None, brief_round=None):
     return "__batch__", "unknown"
 
 
-_ROUND_DIR = re.compile(r"^round[_-]?(\d+)$", re.I)
-_FLAT_FINAL = re.compile(r"_final\.(?:png|jpe?g|webp)$", re.I)
+_VARIANT = re.compile(r"(?:^|[_-])v(\d+)(?=[_.-]|$)", re.I)
+_FLAT_SRC = re.compile(
+    r"^(?P<prefix>.+)-avatar-(?P<n>\d+)-src\.(?P<ext>[A-Za-z0-9]+)$", re.I)
+_FLAT_FINAL = re.compile(
+    r"^(?P<prefix>.+)-avatar-(?P<n>\d+)\.(?:png|jpe?g|webp)$", re.I)
 _FLAT_EXPORT = re.compile(
-    r"^\d+_(?:q\d+|(?:2k|4k)(?:_q\d+)?)\.(?:png|jpe?g)$", re.I)
-_FLAT_SRC = re.compile(r"^(\d+)_src\.([A-Za-z0-9]+)$", re.I)
+    r"^.+?-avatar-\d+-(?:2k|4k|q\d+)\.(?:png|jpe?g)$", re.I)
+_FLAT_ANY_NUMBER = re.compile(
+    r"^.+?-avatar-(\d+)(?:-[a-z0-9]+)?\.[A-Za-z0-9]+$", re.I)
 
 
-def flat_sources(round_dir):
-    """平铺轮次目录里的原图：排除 _final 与按规格导出的 2k/4k/jpg。"""
+def resolve_variant(name):
+    m = _VARIANT.search(name or "")
+    return int(m.group(1)) if m else None
+
+
+def flat_sources(order_dir):
+    """订单根里待处理的原图：排除成品与按规格导出的 2k/4k/qNN。"""
     names = []
-    for name in sorted(os.listdir(round_dir)):
-        path = os.path.join(round_dir, name)
+    for name in sorted(os.listdir(order_dir)):
+        path = os.path.join(order_dir, name)
         if not os.path.isfile(path):
             continue
         if not name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
             continue
-        if _FLAT_FINAL.search(name) or _FLAT_EXPORT.match(name):
+        if name.lower() == "contact_sheet.jpg":
+            continue
+        if _FLAT_EXPORT.match(name) or _FLAT_FINAL.match(name):
             continue
         names.append(name)
     return names
 
 
-def flat_numbers(names):
-    """给本轮原图分配 01、02 序号；已带 NN_src 的沿用原序号，其余取下一个空位。"""
+def flat_detect_prefix(order_dir):
+    """订单根里已有 <prefix>-avatar-N 文件时，沿用出现最多的前缀。"""
+    counts = {}
+    pat = re.compile(r"^(?P<p>.+)-avatar-\d+(?:-[a-z0-9]+)?\.[A-Za-z0-9]+$", re.I)
+    for name in os.listdir(order_dir):
+        m = pat.match(name)
+        if m:
+            p = m.group("p")
+            counts[p] = counts.get(p, 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
+
+def flat_max_number(order_dir, prefix=None):
+    """订单内已用的最大编号（含成品/原图/导出），跨轮连续递增，不按前缀重置。"""
+    mx = 0
+    for name in os.listdir(order_dir):
+        m = _FLAT_ANY_NUMBER.match(name)
+        if m:
+            mx = max(mx, int(m.group(1)))
+    return mx
+
+
+def flat_numbers(names, prefix, start=0):
+    """给订单内原图分配编号；已带 -src 的沿用原编号，其余从 start 往后接。"""
     nums = [None] * len(names)
     used = set()
     for i, name in enumerate(names):
         m = _FLAT_SRC.match(name)
         if m:
-            nums[i] = int(m.group(1))
+            nums[i] = int(m.group("n"))
             used.add(nums[i])
-    nxt = 1
+    nxt = max([start] + list(used)) + 1
     for i in range(len(names)):
         if nums[i] is None:
             while nxt in used:
                 nxt += 1
             nums[i] = nxt
             used.add(nxt)
+            nxt += 1
     return nums
 
 
-def flat_rename_source(path, nn):
-    """把原图落到同目录 NN_src.<ext>；返回新路径（已是该名则不动）。"""
-    stem, ext = os.path.splitext(path)
+def flat_rename_source(path, prefix, nn):
+    """把原图落到订单根 <prefix>-avatar-<nn>-src.<ext>；已是该名则不动。"""
+    _, ext = os.path.splitext(path)
     target = os.path.join(os.path.dirname(path),
-                          "%02d_src%s" % (nn, ext.lower() or ".png"))
+                          "%s-avatar-%d-src%s" % (prefix, nn,
+                                                  ext.lower() or ".png"))
     if os.path.abspath(path) != os.path.abspath(target):
         if os.path.exists(target):
             raise OSError("目标已存在，拒绝覆盖：%s" % target)
@@ -1703,15 +1750,15 @@ def flat_rename_source(path, nn):
     return target
 
 
-def export_flat(master, native_crop, nn, round_dir, formats, want_jpg, jpg_q):
-    """新结构：成品 NN_final.png；可选规格平铺为 NN_2k.png / NN_q88.jpg。"""
+def export_flat(master, native_crop, prefix, nn, order_dir, formats, want_jpg, jpg_q):
+    """单层平铺：成品 <prefix>-avatar-N.png；可选 -2k/-4k/-qNN。"""
     outputs = {}
     upscale_info = {"applied": False, "method": "none", "tiers": {}}
-    tag = "%02d" % nn
+    stem = "%s-avatar-%d" % (prefix, nn)
 
-    final_path = os.path.join(round_dir, tag + "_final.png")
+    final_path = os.path.join(order_dir, stem + ".png")
     master.save(final_path)
-    outputs["final"] = rel(final_path, round_dir)
+    outputs["final"] = rel(final_path, order_dir)
 
     for tier in formats:
         if tier == "1024":
@@ -1719,18 +1766,18 @@ def export_flat(master, native_crop, nn, round_dir, formats, want_jpg, jpg_q):
         size = SIZE_TIERS[tier]
         factor = size / float(native_crop.width)
         big = upscale(native_crop, size)
-        p = os.path.join(round_dir, "%s_%s.png" % (tag, tier))
+        p = os.path.join(order_dir, "%s-%s.png" % (stem, tier))
         big.save(p)
-        outputs["png_" + tier] = rel(p, round_dir)
+        outputs["png_" + tier] = rel(p, order_dir)
         upscale_info["applied"] = True
         upscale_info["method"] = "Pillow LANCZOS (single-pass)"
         upscale_info["tiers"][tier] = {"size": size, "factor": round(factor, 2),
                                        "detail_added": False}
 
     if want_jpg and "1024" in formats:
-        jp = os.path.join(round_dir, "%s_q%d.jpg" % (tag, jpg_q))
+        jp = os.path.join(order_dir, "%s-q%d.jpg" % (stem, jpg_q))
         master.convert("RGB").save(jp, quality=jpg_q, optimize=True, progressive=True)
-        outputs["jpg_1024_q%d" % jpg_q] = rel(jp, round_dir)
+        outputs["jpg_1024_q%d" % jpg_q] = rel(jp, order_dir)
 
     return outputs, upscale_info
 
@@ -2525,11 +2572,13 @@ def raw_quality(face, content_gate, style_gate, angle_gate, face_mode):
 def main():
     ap = argparse.ArgumentParser(description="anime avatar crop + score + export pipeline")
     ap.add_argument("--raw", required=True,
-                    help="原始生成图目录；flat 下为订单根（含 roundNN）或单个 roundNN 目录")
+                    help="flat 下为订单根（图片平铺）；legacy 下为 raw 目录")
     ap.add_argument("--out", default=None,
-                    help="输出目录；legacy 必填。flat 下可选，作为订单根（manifest/联系表位置）")
+                    help="输出目录；legacy 必填。flat 下可选，默认写回订单根")
     ap.add_argument("--layout", choices=("flat", "legacy"), default="flat",
-                    help="flat=每轮平铺 NN_final/NN_src（默认，新订单）；legacy=旧 crop/native 结构")
+                    help="flat=订单内图片平铺 <前缀>-avatar-N（默认，新订单）；legacy=旧 crop/native 结构")
+    ap.add_argument("--prefix", default=None,
+                    help="flat 文件名前缀（默认取角色卡 character_id 或 brief.character_id）")
     ap.add_argument("--brief", default=None, help="brief.json（可选，用于报告头）")
     ap.add_argument("--formats", default="1024", help="逗号分隔：1024,2k,4k")
     ap.add_argument("--jpg", action="store_true", help="额外导出 JPG 压缩版")
@@ -2540,7 +2589,7 @@ def main():
     ap.add_argument("--checklist", default=None, help="人工角色核对清单 JSON（缺省则闸门为 null）")
     ap.add_argument("--expected-angle", default=None, help="文件名无角度前缀时的期望角度 id")
     ap.add_argument("--round", default=None,
-                    help="显式轮次（最高优先级）；缺省读 brief.round，再退回文件名 vN/roundN 或目录名")
+                    help="显式轮次（最高优先级）；缺省读 brief.round；flat 不从文件名/目录猜")
     ap.add_argument("--budget", type=int, default=10,
                     help="本单生成预算（默认 10，保守模式；量产需显式调大）")
     ap.add_argument("--allow-over-budget", action="store_true",
@@ -2601,42 +2650,55 @@ def main():
         expected_default = "front"
     face_mode = args.face_mode or (norm or {}).get("face_mode") or "faced"
 
-    # 轮次解析：--round > brief.round > 文件名 rN/roundN > 父目录名。
-    # 都取不到时不再静默当同轮，打印警告并在 manifest 记 round_source=unknown。
+    # 轮次解析：flat 只看 --round / brief.round；文件名与目录都不带轮次。
+    # 都取不到时打印警告并在 manifest 记 source=unknown，不猜。
     cli_round = args.round
     brief_round = (norm or {}).get("round")
+    prefix = None
     if layout == "flat":
-        subs = [d for d in sorted(os.listdir(raw_dir))
-                if os.path.isdir(os.path.join(raw_dir, d)) and _ROUND_DIR.match(d)]
-        if subs:
-            round_dirs = [os.path.join(raw_dir, d) for d in subs]
-            order_root = out_dir or os.path.abspath(raw_dir)
-        else:
-            # 单个轮次目录：优先识别 roundNN 目录名，否则按单轮平铺处理
-            round_dirs = [raw_dir]
-            order_root = out_dir or os.path.dirname(os.path.abspath(raw_dir))
-            if not _ROUND_DIR.match(os.path.basename(os.path.abspath(raw_dir))):
-                print("WARNING: --raw 不是 roundNN 目录，也未包含 roundNN；"
-                      "已按单轮平铺处理，原图将改名为 NN_src。")
+        order_root = out_dir or os.path.abspath(raw_dir)
         os.makedirs(order_root, exist_ok=True)
+        prefix = (args.prefix or (card or {}).get("character_id")
+                  or (norm or {}).get("character_id")
+                  or flat_detect_prefix(order_root) or "avatar")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", prefix):
+            print("prefix invalid: %s（只允许字母/数字/下划线/连字符）" % prefix)
+            return 2
+        prev_meta = {}
+        prev_manifest = os.path.join(order_root, "manifest.json")
+        if os.path.exists(prev_manifest):
+            try:
+                with open(prev_manifest, "r", encoding="utf-8-sig") as fh:
+                    for it in json.load(fh).get("items") or []:
+                        if it.get("file"):
+                            prev_meta[it["file"]] = it
+            except Exception:
+                prev_meta = {}
+        names = flat_sources(order_root)
+        start = flat_max_number(order_root, prefix)
+        nums = flat_numbers(names, prefix, start)
         work = []
-        for rd in round_dirs:
-            names = flat_sources(rd)
-            nums = flat_numbers(names)
-            for name, nn in zip(names, nums):
-                path = os.path.join(rd, name)
-                rkey, rsrc = resolve_round(name, path, cli_round, brief_round)
-                angle = resolve_angle(name, angle_matrix, expected_default)
-                try:
-                    path = flat_rename_source(path, nn)
-                    name = os.path.basename(path)
-                except OSError as exc:
-                    print("WARNING: 原图改名失败（%s），保留原名。" % exc)
-                prefix = rkey if rkey.startswith("r") and rkey[1:].isdigit() else "batch"
-                work.append({"name": name, "path": path, "round_dir": rd, "nn": nn,
-                             "round": rkey, "round_source": rsrc, "angle": angle,
-                             "file": rel(path, order_root),
-                             "id": "%s-%02d" % (prefix, nn)})
+        for name, nn in zip(names, nums):
+            path = os.path.join(order_root, name)
+            old = prev_meta.get(name) or {}
+            if old.get("round"):
+                rkey, rsrc = old["round"], old.get("round_source") or "manifest"
+            else:
+                rkey, rsrc = resolve_round_meta(cli_round, brief_round)
+            angle = resolve_angle(name, angle_matrix, expected_default)
+            variant = old.get("variant")
+            if variant is None:
+                variant = resolve_variant(name)
+            try:
+                path = flat_rename_source(path, prefix, nn)
+                name = os.path.basename(path)
+            except OSError as exc:
+                print("WARNING: 原图改名失败（%s），保留原名。" % exc)
+            work.append({"name": name, "path": path, "round_dir": order_root,
+                         "nn": nn, "round": rkey, "round_source": rsrc,
+                         "angle": old.get("angle") or angle, "variant": variant,
+                         "file": rel(path, order_root),
+                         "id": "%s-avatar-%d" % (prefix, nn)})
         out_dir = order_root
         ref_dir = order_root
     else:
@@ -2645,10 +2707,11 @@ def main():
         work = []
         for name in files:
             path = os.path.join(raw_dir, name)
-            rkey, rsrc = resolve_round(name, path, cli_round, brief_round)
+            rkey, rsrc = resolve_round_legacy(name, path, cli_round, brief_round)
             work.append({"name": name, "path": path, "round_dir": out_dir, "nn": None,
                          "round": rkey, "round_source": rsrc,
                          "angle": resolve_angle(name, angle_matrix, expected_default),
+                         "variant": resolve_variant(name),
                          "file": name, "id": os.path.splitext(name)[0]})
         ref_dir = raw_dir
 
@@ -2656,9 +2719,15 @@ def main():
         print("no images in %s" % raw_dir)
         return 2
 
-    used = len(work)
+    batch_round, _batch_source = resolve_round_meta(cli_round, brief_round)
+    if layout == "flat" and batch_round != "__batch__":
+        # 订单根会累积历史轮次；预算只算本批轮次，避免重复计数把预算吃光
+        used = len([w for w in work if w["round"] == batch_round])
+    else:
+        used = len(work)
     budget = {"limit": args.budget, "used": used, "remaining": max(0, args.budget - used),
-              "exceeded": used > args.budget, "source": "raw_count"}
+              "exceeded": used > args.budget,
+              "source": "batch_round" if batch_round != "__batch__" else "raw_count"}
     if layout == "legacy":
         with open(os.path.join(out_dir, "budget.json"), "w", encoding="utf-8") as fh:
             json.dump(budget, fh, ensure_ascii=False, indent=2)
@@ -2832,7 +2901,7 @@ def main():
         verdict = "PASS" if not reasons else "REJECT"
 
         if layout == "flat":
-            outputs, upinfo = export_flat(master, native_crop, item["nn"],
+            outputs, upinfo = export_flat(master, native_crop, prefix, item["nn"],
                                           item["round_dir"], formats,
                                           args.jpg, args.jpg_quality)
         else:
@@ -2899,6 +2968,10 @@ def main():
             "face_metrics_applied": best.get("face_metrics_applied", True),
             "round": item_round,
             "round_source": item_round_source,
+            "variant": item.get("variant"),
+            "format": {"master": "png", "tiers": list(formats),
+                       "jpg": args.jpg, "jpg_quality": args.jpg_quality
+                       if args.jpg else None},
             "expected_angle": expected_angle,
             "raw_quality": rawq,
             "angle_metrics": angle_metrics,

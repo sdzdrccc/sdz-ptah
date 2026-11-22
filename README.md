@@ -94,9 +94,11 @@ sdz-ptah/
 ```
 
 运行期产物不入库：订单目录默认 `<工作区>/avatar-orders/<角色>-<NN>/`（如 `satoshi-01`），
-订单根含 `brief.json`、`prompts.json`、`rounds.json`、`status.json`、`manifest.json`、
-`contact_sheet.jpg`，每轮一个 `roundNN/` 目录并完全平铺（`NN_src.jpg`、`NN_final.png`、
-可选 `NN_2k.png` / `NN_4k.png` / `NN_q88.jpg`），由会话与脚本生成。
+一个订单只有一个目录、图片全部平铺，不建任何子目录。命名
+`<前缀>-avatar-<N>.png`（成品）、`-src.jpg`（原图）、可选 `-2k.png` / `-4k.png` /
+`-q88.jpg`；`N` 在订单内跨轮连续递增，轮次只记在 `brief.round` / `rounds.json` /
+`manifest.json`。订单根另有 `brief.json`、`prompts.json`、`status.json`、
+`manifest.json`、`contact_sheet.jpg`，由会话与脚本生成。
 历史订单的旧结构（`<YYYYMMDD-HHMMSS>-<slug>/raw/` + `out/`）原样保留、不迁移；
 `avatar_pipeline.py --layout legacy` 仅用于复跑旧单。
 `ai-anime-avatar/verify/out*/`、`ai-anime-avatar/基准/`、`.trae/`、`.screenshots/`
