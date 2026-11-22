@@ -21,7 +21,11 @@
 在仓库根目录执行：
 
 ```bash
+# 主写法
 python skills/install.py
+
+# Windows 备选：python 报 9009 说明没进 PATH，用 py -3
+py -3 skills/install.py
 ```
 
 默认安装到 TRAE 的全局技能目录 `%USERPROFILE%\.trae-cn\skills\sdz-ptah-avatar\`。
