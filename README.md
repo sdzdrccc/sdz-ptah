@@ -60,13 +60,43 @@ python skills/install.py --target ~/.codex/skills
 
 ## 目录
 
-| 目录 | 内容 |
-|-|-|
-| `skills/` | skill 源码（`SKILL.md`、`references/`、`scripts/`）与 `install.py` |
-| `ai-anime-avatar/outputs/` | 方案文档（设计依据与阈值来源） |
-| `ai-anime-avatar/verify/` | 验证用的需求单、生成原图与对照样本 |
+```text
+sdz-ptah/
+├── README.md                      # 项目说明、安装与用法
+├── skills/
+│   ├── install.py                 # 安装脚本：把 skill 链接/复制到宿主技能目录
+│   └── sdz-ptah-avatar/           # 头像 skill 本体（自包含，可独立运行）
+│       ├── SKILL.md               # 执行入口：流程、硬约束、步骤与命令
+│       ├── references/            # 规则与档案；新增画风/角色只加文件
+│       │   ├── protocol.md        # 协议：字段、阈值、原因码、manifest、能力矩阵
+│       │   ├── angles.json        # 角度矩阵：侧脸双向 + 正脸启用，3/4 预留
+│       │   ├── backends.json      # 后端能力登记：是否支持参考图、张数、强度范围
+│       │   ├── feedback.json      # 交付后不满意的改进方向目录
+│       │   ├── styles/            # 风格档案（各自一套阈值）
+│       │   │   ├── tv-anime-cel.json      # TV 动画赛璐璐
+│       │   │   └── realistic-armor.json   # 写实/皮套（无脸装甲）
+│       │   └── characters/        # 角色卡（外形特征 + 人工核对清单）
+│       │       ├── satoshi.json       # 小智，有人脸（faced）
+│       │       └── fox-armor.json     # 极狐皮套，无脸（faceless，轮廓清单）
+│       └── scripts/               # 执行脚本（纯 Pillow，无 numpy/OpenCV）
+│           ├── avatar_pipeline.py # 定位 → 裁切 → 评分 → 闸门 → 导出
+│           ├── confirm_order.py   # 写 brief.confirm，控制两段式确认门
+│           └── rounds.py          # 轮次、预算与满意度台账
+├── ai-anime-avatar/
+│   ├── outputs/
+│   │   └── AI动漫头像生成方案.md  # 设计依据与阈值来源（可选外链）
+│   ├── probe/                     # 生成端能力探针：入参面与重复性实测
+│   └── verify/
+│       ├── brief.json             # 验证用需求单
+│       ├── control/               # 阴性对照（无脸/合成图）
+│       └── raw/                   # 8 张正脸校准原图
+└── .gitignore                     # 宿主配置、缓存、基准图与生成产物
+```
 
-验证生成的成品图（`verify/out*/`）体积较大且可由脚本复现，已加入 `.gitignore`，不随仓库提交。
+运行期产物不入库：订单目录（默认 `<工作区>/avatar-orders/<YYYYMMDD-HHMMSS>-<slug>/`，
+含 `brief.json`、`prompts.json`、`rounds.json`、`status.json`、`raw/`、`out/`）由会话与脚本生成；
+`ai-anime-avatar/verify/out*/`、`ai-anime-avatar/基准/`、`.trae/`、`.screenshots/`
+与 `__pycache__/` 已在 `.gitignore` 中忽略。验证成品图可由 `avatar_pipeline.py` 完整复现。
 
 ## 依赖
 
