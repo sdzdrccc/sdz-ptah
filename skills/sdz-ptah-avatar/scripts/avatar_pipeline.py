@@ -1612,23 +1612,43 @@ _ROUND_V = re.compile(r"(?:^|[_-])v(\d+)(?:[_-]|$)", re.I)
 _ROUND_N = re.compile(r"(?:^|[_-])round[_-]?(\d+)(?:[_-]|$)", re.I)
 
 
-def round_key(name, path):
-    """去重分组用的轮次键：只有同一轮的候选才互相判近重复。
+def _canon_round(value):
+    """轮次值规范化，让 --round 3、brief.round "v3"、文件名 v3 可对齐。"""
+    if value is None:
+        return None
+    v = str(value).strip()
+    if not v:
+        return None
+    m = re.fullmatch(r"[vV]\s*(\d+)", v)
+    if m:
+        return "v" + m.group(1)
+    m = re.fullmatch(r"(?:round|r)[\s_-]*(\d+)", v, re.I)
+    if m:
+        return "round" + m.group(1)
+    if re.fullmatch(r"\d+", v):
+        return "v" + v
+    return v.lower()
 
-    优先取文件名里的 vN / roundN（如 profile_left_v1_r1 → v1），其次取所在
-    目录名（raw/round_02 → round_02）。都取不到时整批视为同一轮。
-    跨轮（含历史版本）互不判 duplicate，历史版本一律保留。
+
+def resolve_round(name, path, cli_round=None, brief_round=None):
+    """返回 (轮次键, 来源)。优先级：--round > brief.round > 文件名 > 父目录。
+
+    都取不到时返回 ("__batch__", "unknown")，由调用方打印警告，不再静默当同轮。
     """
+    for value, source in ((cli_round, "cli"), (brief_round, "brief")):
+        key = _canon_round(value)
+        if key:
+            return key, source
     for pat, prefix in ((_ROUND_V, "v"), (_ROUND_N, "round")):
         m = pat.search(name)
         if m:
-            return prefix + m.group(1)
+            return prefix + m.group(1), "filename"
     parent = os.path.basename(os.path.dirname(os.path.abspath(path)))
     for pat, prefix in ((_ROUND_N, "round"), (_ROUND_V, "v")):
         m = pat.search(parent)
         if m:
-            return prefix + m.group(1)
-    return "__batch__"
+            return prefix + m.group(1), "dir"
+    return "__batch__", "unknown"
 
 
 # ---------------------------------------------------------------- 风格 / 角度 / 角色闸门
@@ -2374,6 +2394,8 @@ def main():
     ap.add_argument("--angles", default=None, help="角度矩阵 JSON（默认 references/angles.json）")
     ap.add_argument("--checklist", default=None, help="人工角色核对清单 JSON（缺省则闸门为 null）")
     ap.add_argument("--expected-angle", default=None, help="文件名无角度前缀时的期望角度 id")
+    ap.add_argument("--round", default=None,
+                    help="显式轮次（最高优先级）；缺省读 brief.round，再退回文件名 vN/roundN 或目录名")
     ap.add_argument("--budget", type=int, default=10,
                     help="本单生成预算（默认 10，保守模式；量产需显式调大）")
     ap.add_argument("--allow-over-budget", action="store_true",
@@ -2445,6 +2467,19 @@ def main():
         expected_default = "front"
     face_mode = args.face_mode or (norm or {}).get("face_mode") or "faced"
 
+    # 轮次解析：--round > brief.round > 文件名 vN/roundN > 父目录名。
+    # 都取不到时不再静默当同轮，打印警告并在 manifest 记 round_source=unknown。
+    cli_round = args.round
+    brief_round = (norm or {}).get("round")
+    round_map = {name: resolve_round(name, os.path.join(raw_dir, name),
+                                     cli_round, brief_round)
+                 for name in files}
+    unknown_rounds = [n for n, (_, src) in round_map.items() if src == "unknown"]
+    if unknown_rounds:
+        print("WARNING: 轮次未知（%d/%d 张未识别到轮次），已按单轮处理，"
+              "可能误判重复；建议用 --round 或 brief.round 显式指定。"
+              % (len(unknown_rounds), len(files)))
+
     # 参考图能力检测（调用前置）：不支持时默认 fail，绝不静默退回文生图
     backends = load_json(args.backends or default_backends_path())
     gen_check = check_generation((brief or {}).get("generation"), backends)
@@ -2472,7 +2507,9 @@ def main():
             img = img.convert("RGB")
         except Exception as exc:
             results.append({"id": item_id, "file": name, "error": "open_failed:%s" % exc,
-                            "verdict": "ERROR", "total": 0.0, "reasons": ["open_failed"]})
+                            "verdict": "ERROR", "total": 0.0, "reasons": ["open_failed"],
+                            "round": round_map[name][0],
+                            "round_source": round_map[name][1]})
             continue
 
         image_content = _content_analysis(img)
@@ -2493,7 +2530,9 @@ def main():
                                     "眼睛/肤色/头部轮廓回退都未定位到主体；")
                                    + "这是定位失败，不等于构图不合格"},
                 "raw": {"content": image_content},
-                "outputs": {}, "detect": None})
+                "outputs": {}, "detect": None,
+                "round": round_map[name][0],
+                "round_source": round_map[name][1]})
             continue
 
         best = None
@@ -2646,7 +2685,8 @@ def main():
             "face_mode": face_mode,
             "metric_set": best.get("metric_set", "face_metrics"),
             "face_metrics_applied": best.get("face_metrics_applied", True),
-            "round": round_key(name, path),
+            "round": round_map[name][0],
+            "round_source": round_map[name][1],
             "expected_angle": expected_angle,
             "angle_metrics": angle_metrics,
             "reference_similarity": ref_sim,

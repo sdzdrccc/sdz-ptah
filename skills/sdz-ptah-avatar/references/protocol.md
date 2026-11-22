@@ -79,6 +79,7 @@
 | `angle` | 否 | `profile_left` / `profile_right` / `front`；缺失时按性别取默认（男左、女右、未指定左） |
 | `angle_source` | 否 | `default` / `user`；用户手动指定即为 `user` |
 | `budget` | 否 | 本单生成预算，默认 10；与 `--budget` 取更小值 |
+| `round` | 否 | 显式轮次；优先级次于 `--round`、高于文件名/目录推断。缺省且推断失败时告警并按单轮处理（见 5.3） |
 | `generation` | 否 | 生成后端与参考图参数块，见 3.1；缺省按 `text2img` + `fallback=fail` |
 | `constraints` | 否 | 追加的负面约束，编译进 prompt 的禁止项描述 |
 | `confirm` | 是（执行前） | 显式确认块；`confirmed` 必须为 `true`，否则流水线拒绝执行 |
@@ -608,8 +609,19 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 1024 主图的 8×8 均值哈希，**只在同一轮、同一目标角度的候选之间**比较；
 汉明距离 ≤3 判为重复，保留总分高的一张，另一张追加 `duplicate`。
 
-- 轮次键优先取文件名里的 `vN` / `roundN`（如 `profile_left_v1_r1` → v1），
-  其次取所在目录名（`raw/round_02` → round_02）；都取不到时整批视为同一轮。
+**轮次键解析优先级（从高到低）**：
+
+1. `--round <值>` → `round_source=cli`，最高优先级，覆盖下方全部推断；
+2. `brief.round` 字段 → `round_source=brief`；
+3. 文件名里的 `vN` / `roundN` → `round_source=filename`（如 `profile_left_v1_r1` → v1）；
+4. 父目录名里的 `roundN` / `vN` → `round_source=dir`（如 `raw/round_02` → round02）。
+
+- 取值先规范化再比较：`3` / `v3` → `v3`，`round3` / `r3` → `round3`，
+  保证 `--round 3` 与文件名 `v3` 能对齐。
+- **四者都取不到时不再静默把整批当同一轮**：控制台打印
+  「WARNING: 轮次未知（N/M 张…），已按单轮处理，可能误判重复」，
+  并在 manifest 每张图记 `round: "__batch__"`、`round_source: "unknown"`。
+  仍继续执行（单轮回退最保守），但输出必须带明显告警，由人工确认或补 `--round`。
 - **跨轮（含历史版本）互不判 duplicate，历史版本一律保留**；同一轮内不同目标
   角度也不是重复候选（左右侧脸/正脸各自独立）。
 - 阈值由 4 收到 3：统一裁切后不同变体可能落到距离 4，属于误判，不是重复图。
