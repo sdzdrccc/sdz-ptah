@@ -1,6 +1,6 @@
 ---
 name: sdz-ptah-avatar
-description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation, crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. Supports left- and right-facing profiles; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar and Satoshi 小智. Not for scene art or real-person photos.
+description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 6 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left- and right-facing profiles; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar and Satoshi 小智. Not for scene art or real-person photos.
 ---
 
 # SDZ Ptah Avatar（普塔头像）
@@ -35,9 +35,10 @@ description: Generate anime avatars from a style profile + character card + angl
 - **方向判不出时**（瞳孔/鼻尖侧缺失或冲突）→ `angle_undetermined`，暂停请人工确认，
   不拿默认朝向顶替判定结果。正脸、3/4、仰俯仍是 `reserved`，不产、不测、不实现。
 - **两段式 + 确认门（硬性）**：第一段只收参考图/文字/风格，第二段列参数确认
-  （默认画质 1K、张数 1、朝向按性别）；**未收到明确确认前一律不调用
+  （默认画质 1K、张数 2、朝向按性别）；**未收到明确确认前一律不调用
   `GenerateImage`**。确认由 `scripts/confirm_order.py` 写入
   `brief.json.confirm.confirmed=true`；带 brief 却未确认时流水线直接退出码 4。
+  唯一例外：交付后的满意度回访与改进方向选择不需要再走 `confirmed` 门（见步骤 8）。
 - **选择项必须可降级**：能弹 `dynamic-ui` 卡片就弹（点确认后经
   `window.sendPrompt` 回传确认文字，记为 `source=confirmation_card`）；
   弹不出就用编号列表让用户回数字，两条路径语义一致。
@@ -47,7 +48,8 @@ description: Generate anime avatars from a style profile + character card + angl
 - **截断判定替代留边阈值**：贴边但主体完整放行；只有贴边连续主体段过宽且向内延续
   才判 `subject_cut`。顶部/左/右为硬门槛，底部胸像裁切只记录。
 - **低成本模式是默认**：`--budget` 默认 **6** 张。每张生成都计数并写进
-  `status.json.budget`；到预算就停，向用户确认后才继续，不许默默抽。
+  `status.json.budget` 与 `rounds.json.budget_used`；预算**按轮累计**，
+  到上限就停，必须先问用户是否追加，不许默默抽，也不许静默超额。
 - 2K/4K 只能靠放大，放大不新增细节，必须在交付里写明。
 - 缺少 OCR / NSFW / 情绪 / 风格 / 解剖 / 超分模型时，对应闸门记为 `null`，
   不得当成「通过」，也不得口头补分。
@@ -64,9 +66,10 @@ description: Generate anime avatars from a style profile + character card + angl
 ├── brief.json       # 需求（含 style_id / character_id / angle / budget）
 ├── prompts.json     # 编译后的提示词与实际角度/变体
 ├── checklist.json   # 人工角色核对清单（缺必填项不放行）
+├── rounds.json      # 轮次台账：round/count/directions/budget_used（按轮累计）
 ├── status.json      # running / completed / failed / interrupted + budget
-├── raw/             # 原始生成图（.jpg），不得缺失
-└── out/             # 裁切、导出、budget.json、contact_sheet.jpg、manifest.json、report.md
+├── raw/             # 原始生成图（.jpg），不得缺失；多轮时 raw/round_XX/
+└── out/             # 裁切、导出、budget.json、contact_sheet.jpg、manifest.json、report.md；多轮时 out/round_XX/
 ```
 
 - 订单根目录：用户指定优先；未指定用 `<当前工作区>/avatar-orders/`。
@@ -104,7 +107,7 @@ description: Generate anime avatars from a style profile + character card + angl
 3. 解析性别与默认朝向，写 `<订单目录>/brief.draft.json`，`status.json` 记
    `state=awaiting_input`。
 
-字段见 `references/protocol.md` 第 1 节。默认值：`size=1024`、`count=1`
+字段见 `references/protocol.md` 第 1 节。默认值：`size=1024`、`count=2`
 （上限为预算）、`budget=6`、`view=profile`。
 
 **朝向默认规则**：
@@ -118,7 +121,7 @@ description: Generate anime avatars from a style profile + character card + angl
 
 ### 2. 第二段：确认页（仍不生成）
 
-列出参数，默认值已填好：画质（1K / 2K / 4K，默认 1K）、张数（默认 1，上限预算）、
+列出参数，默认值已填好：画质（1K / 2K / 4K，默认 1K）、张数（默认 2，上限预算）、
 朝向（按性别规则）、风格（默认唯一项）、输出（方形 PNG，可选 JPG）。
 
 - 能弹 `dynamic-ui` 交互卡片就弹；点「确认生成」后经 `window.sendPrompt`
@@ -152,10 +155,12 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 
 ### 4. 限量出图（先算预算）
 
-- 首轮张数以 `brief.count` 为准（默认 1，上限为预算）；需要变体时最多再 1 张。
+- 首轮张数以 `brief.count` 为准（默认 2，上限为预算）；需要变体时最多再 1 张。
 - **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true` 才可调用
   `GenerateImage`；没有确认块就回第二段确认页，不许直接抽。
-- 整单不超过 `--budget`（默认 6）。超预算前先停下说明理由并等确认。
+- 整单不超过 `--budget`（默认 6），且**按轮累计**。生成前先跑
+  `rounds.py --check`；余额 ≤0 必须停下说明「预算用尽」并等用户决定是否追加，
+  追加确认后才用 `--budget N` 调大，不许静默超额。
 - 调用前在 `status.json` 记 `budget.limit`；每成功生成一张，`used += 1`、
   `remaining -= 1`，并与 `raw_count` 同步，不要事后补账。
 - `image_size`: `square`；`path`: 绝对路径、**不带扩展名**，先落临时中转目录，
@@ -165,6 +170,12 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
   每次调用后核对文件存在且可打开；打不开记为失败，不继续算分。
 - 出图后先放大到 800px 看鼻梁后方，出现第二只眼/眼白直接弃用，
   不进入评分。重抽最多 1 张，且必须换「远眼不可见」的措辞。
+- 一轮生成完成后立即记账（自动创建 `raw/round_XX` 与 `out/round_XX`）：
+
+```powershell
+py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record `
+  --round 1 --count 2 --directions ""
+```
 
 ### 5. 跑裁切与评分
 
@@ -218,10 +229,37 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 `sharpness`、定位方式、风格/角色/画布/角度闸门结论、原因码）、
 性别与实际朝向（含 `angle_source`：default / user）、确认来源
 （`chat_message` / `confirmation_card`）、
-**本轮实际生成张数与预算**、contact sheet 路径、导出路径、订单目录绝对路径
+**本轮实际生成张数与累计预算**（`rounds.json` 的 `budget_used` / `remaining`）、
+contact sheet 路径、导出路径、订单目录绝对路径
 （`raw/`、`out/manifest.json`、`out/report.md` 必须在其中）、
 以及放大与不可用能力说明。原因码释义见 `references/protocol.md` 第 6 节。
-结束时把 `status.json` 写成 `state=completed`、`phase=done`。
+把 `status.json` 重新写成 `state=completed`、`phase=done`。
+
+### 8. 交付后满意度回访与改进方向重出
+
+- 交付首轮后主动问一次「这版满意吗？」：能弹 `dynamic-ui` 就给「满意 / 不满意」
+  两个可点选项；弹不出用编号列表 `1 满意 / 2 不满意`。这是交付后对话，
+  **不需要再走 `confirmed` 门**，不触发生成。
+- 满意：`rounds.py --set-satisfaction --round <N> --satisfaction satisfied` 收尾。
+- 不满意：读 `references/feedback.json`（方向目录可配置，脚本不硬编码），
+  按编号列出方向：画风贴合度、构图与站位、面部特征、服装与配饰、朝向角度、
+  细节精致度；卡片与编号列表语义一致。
+- **方向选定即视为确认本轮重出**，不再让用户二次确认；但张数或画质若变化，
+  仍回第二段确认页并更新 `params_hash`。
+- 重出流程：
+
+```powershell
+py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --preview --directions composition,detail
+py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --check
+py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
+  --count 2 --directions composition,detail
+```
+
+- 方向落回：`style_fidelity` → 风格锚点；`face_features` / `outfit` → 角色卡块；
+  `composition` / `detail` → 构图尾段；`angle` → 翻转 `brief.angle`（左↔右）。
+- 预算按轮累计：`--check` 退出码 5 表示已用尽，必须先明确告知「预算用尽」，
+  由用户决定是否追加；追加确认后才用 `--budget N` 调大，不许静默超额。
+- 重复轮次会退出码 6，历史轮次与产物目录不得覆盖。
 
 ## 输出格式速查
 

@@ -8,7 +8,7 @@
 
 - 确认词必须包含：确认 / 生成 / confirm（大小写不敏感），否则拒绝写入。
 - --source card 表示确认卡片回传，记录 source=confirmation_card；默认 chat_message。
-- 写入前会补齐默认值（画质 1024 / 张数 1 / 朝向按性别 / 预算 6）并校验。
+- 写入前会补齐默认值（画质 1024 / 张数 2 / 朝向按性别 / 预算 6）并校验。
 - 写入 confirm.confirmed=true 后，avatar_pipeline.py 才允许评分与导出。
 """
 

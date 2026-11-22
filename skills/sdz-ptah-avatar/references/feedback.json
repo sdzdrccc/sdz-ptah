@@ -1,0 +1,50 @@
+{
+  "schema": "feedback-directions/1.0",
+  "version": "1.0.0",
+  "note": "交付后满意度回访的改进方向目录。新增/删除方向只改本文件，不要在脚本里硬编码。target 表示落回哪一层：style.prompt_anchor / character.prompt_block / prompt.tail / brief.angle。",
+  "directions": [
+    {
+      "id": "style_fidelity",
+      "label": "画风贴合度",
+      "description": "更贴近参考截图的 1990 年代 TV 赛璐璐：线宽、平涂、硬边阴影",
+      "target": "style.prompt_anchor",
+      "prompt_clause": "更贴近参考截图：1980-90 年代 TV 动画赛璐璐，细而连续的外轮廓，平涂色块，硬边双层阴影，无渐变、无厚涂"
+    },
+    {
+      "id": "composition",
+      "label": "构图与站位",
+      "description": "脸大小、上下位置、留白比例",
+      "target": "prompt.tail",
+      "prompt_clause": "头像/胸像构图：头部约占画面六成，眼睛位于画面上部四成，头顶与两侧留出少量背景，肩线完整入镜"
+    },
+    {
+      "id": "face_features",
+      "label": "面部特征",
+      "description": "脸型、眼睛、鼻型与年龄感",
+      "target": "character.prompt_block",
+      "prompt_clause": "强化角色面部：圆润少年脸型，大眼杏仁形，琥珀棕虹膜，小鼻点，年龄感偏低"
+    },
+    {
+      "id": "outfit",
+      "label": "服装与配饰",
+      "description": "帽子、徽标、领口、耳饰；只强化已有配饰，不新增数量",
+      "target": "character.prompt_block",
+      "prompt_clause": "强化服装配饰：红白棒球帽与帽徽清晰，蓝色外套白领边完整，已有配饰保持原样、不新增"
+    },
+    {
+      "id": "angle",
+      "label": "朝向角度",
+      "description": "把侧脸朝向翻到另一侧（左变右、右变左）",
+      "target": "brief.angle",
+      "prompt_clause": "保持侧脸，但把头部朝向调成与上一轮相反的一侧；鼻尖、耳朵与可见眼随之镜像",
+      "angle_flip": true
+    },
+    {
+      "id": "detail",
+      "label": "细节精致度",
+      "description": "线条、发丝、高光与边缘干净程度",
+      "target": "prompt.tail",
+      "prompt_clause": "提升细节完成度：线稿闭合干净，发丝分组清晰，眼睛高光与头发高光各一处，不要增加写实纹理"
+    }
+  ]
+}

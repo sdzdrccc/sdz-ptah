@@ -20,7 +20,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -1441,7 +1441,7 @@ DEFAULT_ANGLE_BY_GENDER = {"male": "profile_left", "female": "profile_right",
 def normalize_brief(brief, card, budget):
     """补默认值并校验 brief；返回 (normalized, errors)。
 
-    默认：画质 1024 / 张数 1 / 预算 6；朝向按性别（男左、女右，未指定默认左），
+    默认：画质 1024 / 张数 2 / 预算 6；朝向按性别（男左、女右，未指定默认左），
     用户显式 angle 覆盖。未指定性别时 needs_gender_confirmation=True。
     """
     errors = []
@@ -1479,9 +1479,9 @@ def normalize_brief(brief, card, budget):
     out["size"] = str(out.get("size") or "1024")
     out["formats"] = out.get("formats") or [out["size"]]
     try:
-        count = int(out.get("count")) if out.get("count") is not None else 1
+        count = int(out.get("count")) if out.get("count") is not None else 2
     except (TypeError, ValueError):
-        count = 1
+        count = 2
     count = max(1, count)
     limit = max(1, int(budget))
     out["count_requested"] = count

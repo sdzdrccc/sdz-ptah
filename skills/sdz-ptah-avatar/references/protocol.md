@@ -18,6 +18,8 @@
 >
 > **低成本模式（默认）**：每单生成预算 `--budget`，默认 **6** 张；每张生成都要计数，
 > 超预算必须停下并向用户确认，不能默默继续抽。量产单需用户明确同意后再调大。
+> 预算**按轮累计**（`rounds.json.budget_used`）：累计到上限即停，追加必须再次确认；
+> **不得静默超额**。
 
 ---
 
@@ -33,7 +35,7 @@
   "size": "1024",
   "formats": ["1024"],
   "jpg": false,
-  "count": 1,
+  "count": 2,
   "view": "profile",
   "gender": "male",
   "gender_source": "card",
@@ -61,7 +63,7 @@
 | `size` | 否 | 主交付档位：`1024` / `2k` / `4k`；默认 `1024` |
 | `formats` | 否 | 与 `size` 一致的导出档位列表；默认 `[size]` |
 | `jpg` | 否 | 是否导出压缩版 |
-| `count` | 否 | 首轮张数，默认 **1**，上限为预算；超预算会被截到预算并记 `count_capped` |
+| `count` | 否 | 首轮张数，默认 **2**，上限为预算；超预算会被截到预算并记 `count_capped` |
 | `view` | 否 | 当前固定 `profile`；其它视角为预留，不执行 |
 | `gender` | 否 | `male` / `female` / `unspecified`；缺失时按 `unspecified` 处理 |
 | `gender_source` | 否 | `user` / `card` / `unspecified`，由流水线补全 |
@@ -90,7 +92,7 @@
 | 项 | 默认 | 可选 |
 |-|-|-|
 | 画质 | 1K（`1024`） | 1K / 2K / 4K |
-| 张数 | 1（上限为预算 6） | 1–6 |
+| 张数 | 2（上限为预算 6） | 1–6 |
 | 朝向 | 按性别（男左、女右、未指定左） | 朝左 / 朝右 |
 | 风格 | `tv-anime-cel` | 当前仅此一项 |
 | 输出 | 方形 PNG | 可加 JPG |
@@ -111,6 +113,9 @@
 - 流水线同样校验：带 `--brief` 但未确认 → 直接退出码 4，不评分、不导出。
 - 确认块字段：`confirmed` / `at` / `source`（`chat_message` 或 `confirmation_card`）/
   `text` / `params_hash`。参数变了（画质、张数、朝向、性别）必须重新确认。
+- **唯一例外**：交付后的满意度回访与「改进方向」选择属于交付后对话，不需要再走
+  `confirmed` 门；方向选定即视为确认本轮重出（见 3.5）。但只要张数或画质变化，
+  仍需重新确认并更新 `params_hash`。
 
 ```powershell
 py -3 scripts/confirm_order.py --brief "<订单目录>\brief.json" `
@@ -266,9 +271,10 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 入参 | 仅 `prompt` 与 `image_size`；无 seed / 负向词 / 参考图 / 批量 |
 | 原生输出 | 1920×1920 方形 JPEG（实测 385–510 KB）；提示词显式要求满出血、无边框 |
 | 当前角度 | 按 `brief.angle`：`profile_left` 或 `profile_right`；默认按性别规则，用户可覆盖 |
-| 首轮 | 默认 1 张（画质默认 1K）；必须完成确认门后才允许调用 |
+| 首轮 | 默认 2 张（画质默认 1K）；必须完成确认门后才允许调用 |
 | 二轮补量 | 只在预算内、且用户同意后补；同一角度最多再 1 张 |
-| 单需求总预算 | `--budget`，默认 **6**；每张调用都计数，超预算停下确认 |
+| 单需求总预算 | `--budget`，默认 **6**；每张调用都计数，**按轮累计**，超预算停下确认 |
+| 轮次记录 | 每轮写 `rounds.json`（`round/count/directions[]/budget_used`），产物落 `raw/round_XX`、`out/round_XX`；历史轮次不覆盖 |
 | 预算落盘 | `status.json` 的 `budget{limit,used,remaining}` 每次生成后 +1；manifest 记录实际张数 |
 | 侧脸变体 | 需要重抽时，换「远眼不可见」的措辞（至少两种写法），不要原句连抽 |
 | 侧脸验收 | 每张先放大到 800px 看鼻梁后方；出现第二只眼/眼白即弃用，不进入评分 |
@@ -283,6 +289,84 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 **低成本验证优先**：能用参考图或已有产物算出的结论（风格粗指标、角度判定、阈值校准），
 一律不出图。只有必须验证「生成端实际出图」时才动用预算，且先跑最小张数。
 每轮报告必须写出「本轮实际生成 N 张 / 预算 M 张」，包括失败与重抽。
+
+---
+
+## 3.5 满意度回访与改进方向重出（交付后）
+
+**触发时机**：首轮产物已出并交付（报告 + 预览链接已给）之后，主动问一次
+「这版满意吗？」。这是**交付后对话**，不触发生成，也不需要再走 `confirmed` 门。
+
+**回访呈现（二选一，语义一致）**：
+
+- 交互卡片：两个可点选项「满意 / 不满意」。
+- 编号列表降级：`1 满意 / 2 不满意`，用户回数字或文字即可。
+
+**用户满意**：收尾，用 `rounds.py --set-satisfaction --round N --satisfaction satisfied`
+回填本轮满意度，不再出图。
+
+**用户不满意**：读 `references/feedback.json` 列出改进方向（可配置，不在脚本里硬编码），
+可点卡片 + 编号列表降级。默认目录至少覆盖六类：
+
+| id | 方向 | 落回层 |
+|-|-|-|
+| `style_fidelity` | 画风贴合度（更贴参考截图） | `style.prompt_anchor` |
+| `composition` | 构图与站位（脸大小 / 上下位置 / 留白） | `prompt.tail` |
+| `face_features` | 面部特征（脸型 / 眼睛 / 鼻型 / 年龄感） | `character.prompt_block` |
+| `outfit` | 服装与配饰（帽子 / 徽标 / 领口 / 耳饰） | `character.prompt_block` |
+| `angle` | 朝向角度（左 ↔ 右翻转） | `brief.angle`（`angle_flip`） |
+| `detail` | 细节精致度（线条 / 发丝 / 高光） | `prompt.tail` |
+
+**确认语义**：方向选定即视为确认本轮重出，**不再要求用户二次确认**；
+但若张数或画质相对上一轮变化，仍按第二段确认门重新确认并更新 `params_hash`。
+
+**执行顺序**：
+
+1. `rounds.py --preview --directions <id,...>` 取 `prompt_appendix` 与 `angle_flip`；
+2. 把 `prompt_clause` 追加到对应层（不改变 §2.6 编译顺序，只强化该层措辞）；
+   `angle_flip=true` 时把 `brief.angle` 左↔右翻转，`angle_source=feedback`；
+3. 生成前跑 `rounds.py --check`：余额 ≤0 时**必须先问用户是否追加预算**，
+   确认后用 `--budget N` 调整上限；**不得静默超额**；
+4. 出图后 `rounds.py --record --round N --count N --directions ...`，
+   自动创建 `raw/round_XX` 与 `out/round_XX`，历史轮次不覆盖。
+
+```powershell
+py -3 scripts/rounds.py --order "<订单目录>" --check
+py -3 scripts/rounds.py --order "<订单目录>" --preview --directions composition,detail
+py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
+  --directions composition,detail
+```
+
+**退出码**：`0` 成功；`2` 参数/未知方向；`5` 预算用尽（须先问用户）；
+`6` 重复轮次（不覆盖历史）。
+
+`rounds.json` 最小结构：
+
+```json
+{
+  "schema": "avatar-rounds/1.0",
+  "order_id": "20261122-153000-xiaozhi",
+  "budget_limit": 6,
+  "budget_used": 4,
+  "remaining": 2,
+  "satisfaction": "unsatisfied",
+  "rounds": [
+    {
+      "round": 1,
+      "count": 2,
+      "directions": [],
+      "budget_used": 2,
+      "generated_at": "2026-11-22 15:31:20",
+      "satisfaction": "unsatisfied",
+      "raw_dir": "raw/round_01",
+      "out_dir": "out/round_01"
+    }
+  ]
+}
+```
+
+`budget_used` 是累计值（各轮 `count` 之和），不是本轮增量。
+预算耗尽时先明确告知「预算用尽」，由用户决定是否追加；追加必须再确认一次。
 
 ---
 
@@ -593,9 +677,10 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 <订单根目录>/<订单目录>/
 ├── brief.json      # 需求单
 ├── prompts.json    # 4 条编译后提示词 + 实际使用变体
+├── rounds.json     # 轮次台账：round/count/directions/budget_used（按轮累计）
 ├── status.json     # running / completed / failed / interrupted
-├── raw/            # 原始生成图 v1_r1.jpg …（永不删除）
-└── out/            # 见 8.1
+├── raw/            # 原始生成图 v1_r1.jpg …（永不删除；多轮时 raw/round_XX/）
+└── out/            # 见 8.1（多轮时 out/round_XX/）
 ```
 
 - `%TEMP%` / `/tmp` 只能作生成中转，逐张生成后立即 `Move` 进 `raw/`；
@@ -614,9 +699,12 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 <订单目录>/
 ├── brief.json
 ├── prompts.json
+├── rounds.json              # 轮次与累计预算台账
 ├── status.json
 ├── raw/                     # 生成原图 v1_r1.jpg …（不改动、不删除）
+│   └── round_01/            # 第 1 轮原图（多轮时保留每轮历史）
 └── out/
+    ├── round_01/            # 第 1 轮裁切/导出/预览（多轮时保留每轮历史）
     ├── crop/                # <id>_1024.png      默认 PNG 主图
     ├── native/              # <id>_native_<px>.png 原生裁切母版
     ├── preview/             # <id>_preview.png   方形预览（不再生成圆形遮罩）
