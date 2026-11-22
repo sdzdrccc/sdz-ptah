@@ -14,13 +14,14 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 from collections import deque
 from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -1607,6 +1608,29 @@ def hamming(a, b):
     return bin(a ^ b).count("1")
 
 
+_ROUND_V = re.compile(r"(?:^|[_-])v(\d+)(?:[_-]|$)", re.I)
+_ROUND_N = re.compile(r"(?:^|[_-])round[_-]?(\d+)(?:[_-]|$)", re.I)
+
+
+def round_key(name, path):
+    """去重分组用的轮次键：只有同一轮的候选才互相判近重复。
+
+    优先取文件名里的 vN / roundN（如 profile_left_v1_r1 → v1），其次取所在
+    目录名（raw/round_02 → round_02）。都取不到时整批视为同一轮。
+    跨轮（含历史版本）互不判 duplicate，历史版本一律保留。
+    """
+    for pat, prefix in ((_ROUND_V, "v"), (_ROUND_N, "round")):
+        m = pat.search(name)
+        if m:
+            return prefix + m.group(1)
+    parent = os.path.basename(os.path.dirname(os.path.abspath(path)))
+    for pat, prefix in ((_ROUND_N, "round"), (_ROUND_V, "v")):
+        m = pat.search(parent)
+        if m:
+            return prefix + m.group(1)
+    return "__batch__"
+
+
 # ---------------------------------------------------------------- 风格 / 角度 / 角色闸门
 
 def load_json(path):
@@ -2622,6 +2646,8 @@ def main():
             "face_mode": face_mode,
             "metric_set": best.get("metric_set", "face_metrics"),
             "face_metrics_applied": best.get("face_metrics_applied", True),
+            "round": round_key(name, path),
+            "expected_angle": expected_angle,
             "angle_metrics": angle_metrics,
             "reference_similarity": ref_sim,
             "generation": gen_check,
@@ -2650,12 +2676,17 @@ def main():
             "ahash": ahash(master),
         })
 
-    # 去重
+    # 去重：只在同一轮、同一目标角度的候选之间判近重复。
+    # 跨轮（含历史版本）与不同角度不是重复候选，历史版本一律保留。
     for i in range(len(results)):
         if "ahash" not in results[i]:
             continue
         for j in range(i + 1, len(results)):
             if "ahash" not in results[j]:
+                continue
+            if results[i].get("round") != results[j].get("round"):
+                continue
+            if results[i].get("expected_angle") != results[j].get("expected_angle"):
                 continue
             if hamming(results[i]["ahash"], results[j]["ahash"]) <= 3:
                 loser = j if results[i]["total"] >= results[j]["total"] else i
