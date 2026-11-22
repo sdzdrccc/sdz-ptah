@@ -1,0 +1,38 @@
+{
+  "schema": "generation-backends/1.0",
+  "version": "1.0.0",
+  "host_note": "参考图能力取决于宿主与后端，不是本 skill 的固有属性。装到别的宿主或换后端时必须重新跑一次能力检测（scripts/avatar_pipeline.py 会在评分前检查 --backends 或 brief.generation），不得沿用上一单的结论。",
+  "fallback_policy": {
+    "default": "fail",
+    "text2img": "只有用户显式同意 fallback=text2img 才允许退回；manifest 记 identity_unverified=true，报告必须显著标注，禁止静默退回",
+    "exit_code": 4
+  },
+  "backends": [
+    {
+      "id": "trae-generateimage",
+      "display_name": "TRAE GenerateImage",
+      "available": true,
+      "params": ["prompt", "image_size"],
+      "reference_images": {
+        "supported": false,
+        "max": 0,
+        "roles": [],
+        "strength_range": null
+      },
+      "note": "当前宿主实测只有 prompt 与 image_size 两个入参：没有 seed、负向词、参考图或批量参数。参考图只能用于读特征，不能当作生成条件。"
+    },
+    {
+      "id": "sdxl-img2img-ref",
+      "display_name": "SDXL img2img + IP-Adapter（参考图后端示例）",
+      "available": false,
+      "params": ["prompt", "image_size", "reference_images", "strength", "negative_prompt"],
+      "reference_images": {
+        "supported": true,
+        "max": 4,
+        "roles": ["style", "identity", "outfit"],
+        "strength_range": [0.2, 0.9]
+      },
+      "note": "能力位示例，本机未接入；available=false 时流水线会拒绝执行，不能把示例当成可用后端。"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 name: sdz-ptah-avatar
-description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left- and right-facing profiles; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar and Satoshi 小智. Not for scene art or real-person photos.
+description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left/right profiles, front, and faceless/armored (helmet/visor) characters with a head-contour metric set; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Reference-image generation is gated by backend capability detection (references/backends.json); unsupported backends fail with exit 4 rather than silently falling back to text2img. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar, Satoshi 小智, and faceless armor suits. Not for scene art or real-person photos.
 ---
 
 # SDZ Ptah Avatar（普塔头像）
@@ -13,9 +13,9 @@ description: Generate anime avatars from a style profile + character card + angl
 
 | 层 | 路径 | 当前内容 |
 |-|-|-|
-| 风格档案 | `references/styles/<style-id>.json` | `tv-anime-cel`（TV 动画赛璐璐） |
-| 角色卡 | `references/characters/<character-id>.json` | `satoshi`（小智） |
-| 角度矩阵 | `references/angles.json` | `profile_left` / `profile_right` 均启用，其余 `reserved` |
+| 风格档案 | `references/styles/<style-id>.json` | `tv-anime-cel`（TV 动画赛璐璐）、`realistic-armor`（写实/皮套） |
+| 角色卡 | `references/characters/<character-id>.json` | `satoshi`（小智，faced）、`fox-armor`（无脸皮套，faceless） |
+| 角度矩阵 | `references/angles.json` | `profile_left` / `profile_right` / `front` 启用，3/4、仰俯 `reserved` |
 
 本 skill 自包含，可独立运行：协议、阈值、脚本、原因码全部在
 `references/protocol.md` 与 `scripts/avatar_pipeline.py` 内，不依赖任何项目目录。
@@ -26,14 +26,23 @@ description: Generate anime avatars from a style profile + character card + angl
 
 - 生成端只有 `GenerateImage` 一个入口：入参只有 `prompt` 与 `image_size`。
   **没有 seed、负向词、参考图、批量参数**，同一 prompt 两次结果不同。
+  参考图能否参与生成取决于宿主/后端，必须先查 `references/backends.json` 的能力声明；
+  当前宿主不支持参考图入参时默认 `fallback=fail`、退出码 4，**不得静默退回文生图**。
 - 原生输出 1920×1920 JPEG。构图系统性偏下（实测眼睛在 0.40–0.45），
   **不要试图用提示词修构图**，一律交给裁切补偿。
-- **当前范围做侧脸双向**：`profile_left`（鼻尖在左、耳朵在右）与
-  `profile_right`（鼻尖在右、耳朵在左）都启用。默认朝向按性别：**男性朝左、
-  女性朝右、未指定默认朝左并在确认页提示**；用户可手动覆盖。
-  角色卡用 `gender: male|female|unspecified`；未指定时不从参考图推断。
-- **方向判不出时**（瞳孔/鼻尖侧缺失或冲突）→ `angle_undetermined`，暂停请人工确认，
-  不拿默认朝向顶替判定结果。正脸、3/4、仰俯仍是 `reserved`，不产、不测、不实现。
+- **角度范围**：`profile_left`（鼻尖在左、耳朵在右）、`profile_right`（鼻尖在右、
+  耳朵在左）与 `front`（正脸）均启用。默认朝向按性别：**男性朝左、女性朝右、
+  未指定默认朝左并在确认页提示**；用户可手动覆盖。正脸判据是双眼检出 +
+  eye_y 0.24–0.38（正样本校准，不套侧脸 0.32–0.46）+ 眼线倾斜/双眼平衡达标。
+  3/4、仰俯仍是 `reserved`，命中即 `angle_mismatch`，不产、不测、不实现。
+- **方向判不出时**（瞳孔/鼻尖侧/面罩信号缺失或冲突）→ `angle_undetermined`，
+  暂停请人工确认，不拿默认朝向顶替判定结果。
+- **无脸/皮套模式（`face_mode=faceless`）**：不用眼部锚点裁切，改用头部/头盔整体
+  轮廓；面部类指标（眼位、双侧对称、面部占比）不参与评分，改为头部轮廓占比 +
+  上下留白 + 居中偏移，manifest 标 `metric_set=head_contour`、
+  `face_metrics_applied=false`。角色卡用轮廓类必填清单（耳鳍/头盔形状、面罩、
+  装甲配色、胸口标识等）。写实/皮套不得套赛璐璐阈值，用 `realistic-armor`；
+  无档案或声明不适用时记 `null + 原因`，**null 不算 PASS**。
 - **两段式 + 确认门（硬性）**：第一段只收参考图/文字/风格，第二段列参数确认
   （默认画质 1K、张数 2、朝向按性别）；**未收到明确确认前一律不调用
   `GenerateImage`**。确认由 `scripts/confirm_order.py` 写入
@@ -109,14 +118,18 @@ description: Generate anime avatars from a style profile + character card + angl
 
 `/sdz-ptah-avatar` 或普通请求触发后，只做三件事：
 
-1. 读会话里的参考图（复制进订单 `refs/`；**只能读特征，不能当生成条件**——
-   `GenerateImage` 没有参考图入参）与文字说明；
-2. 选风格（默认 `tv-anime-cel`）与角色卡（有则用，无则按描述建临时卡）；
+1. 读会话里的参考图（复制进订单 `refs/`）与文字说明；参考图**默认只读特征**——
+   能否作为生成入参取决于宿主/后端，须先查 `references/backends.json` 并检测，
+   不支持时不得假装已使用参考图；
+2. 选风格（默认 `tv-anime-cel`；无脸/皮套用 `realistic-armor`）与角色卡
+   （有则用，无则按描述建临时卡；无脸角色卡写 `face_mode=faceless`）；
 3. 解析性别与默认朝向，写 `<订单目录>/brief.draft.json`，`status.json` 记
    `state=awaiting_input`。
 
 字段见 `references/protocol.md` 第 1 节。默认值：`size=1024`、`count=2`
-（上限为预算）、`budget=10`、`view=profile`。
+（上限为预算）、`budget=10`、`view=profile`、`face_mode=faced`。
+需要参考图时在 brief 写 `generation` 块（`backend` / `mode` / `reference_images[]` /
+`strength` / `fallback`），并在确认页明确「当前后端是否支持参考图、不支持时的处理」。
 
 **朝向默认规则**：
 
@@ -199,12 +212,17 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
   --budget 10
 ```
 
+无脸/皮套单改为 `--face-mode faceless --style references/styles/realistic-armor.json
+--character references/characters/fox-armor.json`；需要参考图时加 `--references` 并在
+brief 写 `generation` 块，脚本先做后端能力检测。
+
 - `--formats` 取 `1024` / `2k` / `4k` 的逗号组合；`--jpg` 额外导出压缩版，
   `--jpg-quality` 默认 88。
 - `--budget` 默认 10；脚本用 `raw/` 实际张数做账，超预算且未加
   `--allow-over-budget` 时直接退出（码 3），不评分不导出。
 - 不传 `--style` / `--character` / `--checklist` 时对应闸门为 `null`；
   风格/角色单的交付不接受 `null`。
+- `--angles` 不传时默认读 `references/angles.json`（不再跳过角度闸门）。
 - 画布闸门始终生效（方形 + 无边框），不依赖是否传风格档案。
 - 未启用角度（`reserved`）传入 `--expected-angle` 会直接 `angle_mismatch`，不是 `null`。
 - 带 `--brief` 但缺少 `confirm.confirmed=true`：脚本直接退出码 4，不评分不导出。
@@ -222,8 +240,12 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 
 - `verdict=PASS` 且 `style` / `character` / `canvas` / `angle` 四道闸门都不为 `FAIL` 才是候选。
 - 风格闸门看主色数、饱和度、边缘密度、背景平涂度；角色闸门看人工清单必填项；
-  画布闸门看方形与边框/装饰圈；角度闸门看侧脸双向
-  （单眼 + 瞳孔在对应半侧 + 鼻尖侧 + 眼位；判不出方向记 `angle_undetermined`）。
+  画布闸门看方形与边框/装饰圈；角度闸门看侧脸双向、正脸与无脸面罩判据
+  （侧脸：单眼 + 瞳孔在对应半侧 + 鼻尖侧 + 眼位；正脸：双眼 + eye_y 0.24–0.38 +
+  倾斜/平衡；无脸：面罩/高光偏移 + 头盔轮廓对称；判不出方向记 `angle_undetermined`）。
+- faceless 主图用头部轮廓指标集（`head_ratio` / `head_width_ratio` / `center_offset`），
+  manifest 的 `metric_set` 与 `face_metrics_applied` 必须如实标注。
+- 截断只在平涂背景可判定时采信；非平涂底记 `null`，不拿不可靠边圈判死。
 - 截断不再按留边距离一刀切：顶部/左/右判截断才 REJECT，底部只记录。
 - 构图闸门在最终成品上跑完整：截断 + 上/下留白 + 主体占比 + 顶部平切；
   不可判定的维度记 `null`，不冒充 PASS。
@@ -297,8 +319,11 @@ py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
   深色头发可能和深色画框混淆，细边框也可能漏检，人工确认不可省。
 - 内容留白/主体占比/顶部平切闸门只在平涂背景可判定时生效；
   非平涂底记 `null` 并由人眼复核，不把「算不出」当成通过。
-- 角度判定覆盖侧脸双向（朝左/朝右），但单眼判定可能把「远眼没检出的 3/4 脸」当成侧脸；
-  方向判不出时只会报 `angle_undetermined`，不会自动选边。所以 800px 人工查第二只眼仍是必做步骤。
+- 角度判定覆盖侧脸双向、正脸与无脸面罩；单眼判定可能把「远眼没检出的 3/4 脸」当成侧脸，
+  正脸眼位区间又不能套侧脸，所以 800px 人工查第二只眼仍是必做步骤。
+- 参考图能否参与生成取决于宿主/后端，不由本 skill 保证；`trae-generateimage` 当前
+  不支持参考图入参。换宿主后必须重跑 `backends.json` 能力检测，不能沿用旧结论。
+  无 embedding 模型时身份相似度只能记 `null` + 人工清单，不能拿色板相似度冒充。
 
 ## 边界
 

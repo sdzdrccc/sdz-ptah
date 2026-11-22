@@ -1,0 +1,74 @@
+{
+  "schema": "style-profile/1.0",
+  "style_id": "realistic-armor",
+  "display_name": "写实/皮套装甲（低饱和硬表面）",
+  "version": "1.0.0",
+  "status": "active",
+  "applies_to": ["faced", "faceless"],
+  "source": {
+    "type": "existing-outputs",
+    "note": "依据极狐 6 张成品统计校准；写实皮套不能套用赛璐璐阈值（赛璐璐饱和度下限 0.08 会把正常低饱和装甲判成异体系）",
+    "reference_count": 6
+  },
+  "prompt_anchor": "写实/特摄皮套风格，低饱和装甲配色，硬表面材质与清晰结构线，柔和棚拍平光，轻微金属/哑光反差；不要漫画描边、赛璐璐平涂或高饱和荧光色",
+  "line": {
+    "weight_px_at_1024": [0, 1],
+    "color": "随材质走，不画连续黑描边",
+    "note": "结构靠明暗与分件线，不靠漫画线稿；这是与赛璐璐最关键的区别"
+  },
+  "shading": {
+    "layers": [2, 4],
+    "gradient": true,
+    "note": "允许柔和渐变与高光带；不要硬边双层赛璐璐阴影"
+  },
+  "palette": {
+    "saturation_tendency": "低饱和，白/灰/深色为主，少量高饱和作面罩灯或标识",
+    "value_tendency": "中间调为主，暗部保留结构",
+    "max_main_colors": 16,
+    "anchor_colors": ["#fefeff", "#d8dbe0", "#7c828c", "#2b2f36", "#b8342f"]
+  },
+  "face": {
+    "mode": "optional",
+    "eyes": "有脸时按角色卡；无脸/头盔角色不检眼部，改查面罩与头盔轮廓",
+    "proportions": "头身比按皮套角色设定，不套用儿童动画比例"
+  },
+  "background": {
+    "mode": "flat",
+    "allowed": ["flat_plain", "soft_gradient", "dark_solid"],
+    "note": "纯白/浅灰平涂或轻渐变，铺满方形画布；不要写实场景与装饰圈",
+    "forbidden": ["写实场景", "高噪点纹理", "文字与水印", "圆形画框", "装饰边框"]
+  },
+  "canvas": {
+    "aspect": "1:1",
+    "bleed": true,
+    "frame": false,
+    "circular_mask": false,
+    "crop_export": "square",
+    "prompt_clause": "square canvas, no border, no frame, no circular mask, edge-to-edge",
+    "note": "与赛璐璐档案一致：方形满出血，禁止边框/圆形遮罩/装饰圈"
+  },
+  "prompt_forbidden": ["漫画描边", "赛璐璐平涂", "高饱和荧光色", "厚涂油画笔触", "3D 卡通渲染"],
+  "gate": {
+    "applicable": true,
+    "palette_colors": [4, 16],
+    "saturation": [0.015, 0.20],
+    "edge_density": [0.025, 0.12],
+    "background_stddev_max": 12,
+    "background_modes": ["flat", "simple"],
+    "note": "粗指标只拦明显异体系。极狐实测：主色 7–10、饱和度 0.028–0.049、边缘密度 0.054–0.070、背景平涂；写实底允许低饱和，不能用赛璐璐的饱和度下限 0.08。"
+  },
+  "calibration": {
+    "method": "极狐 6 张原始图直接计算，不出新图",
+    "measured": {
+      "fox_raw": {
+        "palette_colors": [7, 10],
+        "saturation": [0.028, 0.049],
+        "edge_density": [0.054, 0.070],
+        "background_share": [0.549, 0.872],
+        "background_stddev": [0.0, 0.7],
+        "background_mode": "flat"
+      }
+    },
+    "faceless_note": "faceless 模式下仍必须声明风格档案；没有档案记 style_unverified（不计为通过），档案声明 applicable=false 记 style_not_applicable（null + 原因，同样不计为通过）。"
+  }
+}

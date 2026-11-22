@@ -20,7 +20,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.7.1"
+VERSION = "1.8.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -89,6 +89,21 @@ BOTTOM_BLANK_MAX = 0.18          # 成品下留白上限（胸像可贴底）
 SUBJECT_SHARE_MIN = 0.40         # 内容框面积 / 画布面积 下限
 SUBJECT_SHARE_MAX = 0.95
 HEAD_CUT_RUN_RATIO = 0.22        # 内容最高行最长连续段 / 内容宽，超过视为平切头
+# 无脸/皮套模式：不用眼部锚点，改用头部/头盔整体轮廓。
+# 比例阈值以极狐 6 张（1024²，头宽约 0.30–0.32 画面宽）校准：
+# 目标让头宽约占成品 0.50，头框面积占比约 0.35。
+HEAD_RATIO_MIN, HEAD_RATIO_MAX = 0.18, 0.62
+HEAD_TARGET = 0.35
+HEAD_WIDTH_TARGET = 0.50
+CENTER_OFFSET_MAX = 0.10
+FACELESS_SAT_MIN = 20.0          # 面罩/高光饱和像素权重下限，低于此视为无信号
+# 角度：实测极狐面罩/高光横向偏移 朝左 -0.22~-0.24、朝右 +0.22~+0.27、正面 +0.02
+VISOR_SIDE_MIN = 0.08
+VISOR_FRONT_MAX = 0.06
+CONTOUR_SIDE_MIN = 0.05
+FRONT_EYE_Y = [0.24, 0.38]       # 正脸眼位：verify/raw 8 张实测 0.303–0.316
+FRONT_EYE_TILT_MAX = 0.07
+FRONT_EYE_BALANCE_MAX = 0.08
 FACE_RATIO_MIN, FACE_RATIO_MAX = 0.34, 0.82
 EYE_MIN, EYE_MAX = 0.12, 0.36
 # 侧脸单眼走「头部包围盒」定位，箱体含头发/帽子，眼位天然比正脸低。
@@ -126,7 +141,13 @@ REASON_LABEL = {
     "composition_bad:head_cut": "头顶被裁平（内容最高行连续段过宽）",
     "composition_bad:whitespace": "上下留白越界",
     "composition_bad:subject_share": "主体占画面比例越界",
+    "composition_bad:head_ratio": "头部轮廓占比越界",
+    "composition_bad:centering": "头部居中偏移越界",
     "locate_failed": "定位失败（非构图缺陷）",
+    "reference_unsupported": "当前后端不支持参考图入参",
+    "reference_style_low": "成品与参考图风格相似度过低",
+    "style_unverified": "风格维度未验证（无档案或声明不适用），不计为通过",
+    "style_not_applicable": "风格档案声明该维度不适用（记 null，不计为通过）",
     "canvas_bad:square": "画布不是方形",
     "canvas_bad:frame": "画面有边框或装饰圈",
     "thumb_unreadable": "缩图不可读",
@@ -1251,9 +1272,14 @@ def score_crop(img, crop, face, image_content=None):
     region = img.crop((int(round(left)), int(round(top)),
                        int(round(left + s)), int(round(top + s))))
     edge = _edge_cut(region)
-    cut_hard = [e for e in CUT_HARD_EDGES if edge.get(e, {}).get("cut")]
     content = _content_analysis(region)
     content_gate = _content_gate(content, image_content)
+    # subject_cut 只在平涂背景可判定时生效：写实场景/渐变/模糊背景的边圈
+    # 不全是背景，贴边连续段会被误当主体（实测 adam 背景非平涂时左右误判）。
+    # 不可靠时记 null、不判死，而不是拿不可靠的边圈当截断证据。
+    cut_trust = bool(content.get("applied") and content.get("reliable"))
+    cut_hard = ([e for e in CUT_HARD_EDGES if edge.get(e, {}).get("cut")]
+                if cut_trust else [])
 
     ratio_score = clamp(1 - abs(face_ratio - RATIO_TARGET) / RATIO_TOL, 0, 1)
     eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
@@ -1338,6 +1364,224 @@ def score_crop(img, crop, face, image_content=None):
     }
 
 
+def _faceless_head(img, content=None):
+    """无脸模式定位：只用头部/头盔轮廓，不用眼部锚点。"""
+    head = _content_head(img, content)
+    if not head:
+        return None
+    head = dict(head)
+    head["method"] = "contour-head"
+    head["face_mode"] = "faceless"
+    head["profile"] = False
+    head["eyes"] = []
+    return head
+
+
+def _faceless_angle_metrics(img, head, content=None):
+    """无脸朝向信号：面罩/高光饱和质心偏移 + 头盔左右轮廓对称性。"""
+    info = content or _content_analysis(img)
+    W, H = img.size
+    hx, hy, hw, hh = head["box"]
+    bg = (info or {}).get("bg")
+    if not info or not info.get("reliable") or not bg:
+        return {"metric_set": "head_contour", "mode": "faceless",
+                "contour_asym": None, "visor_offset": None, "sat_weight": 0.0,
+                "facing": None, "note": "content not separable"}
+    hcx = hx + hw / 2.0
+    work = min(CONTENT_WORK, W)
+    h = max(1, int(round(H * work / float(W))))
+    small = img.convert("RGB").resize((work, h), Image.BILINEAR)
+    px = small.load()
+    sx, sy = W / float(work), H / float(h)
+
+    def is_bg(c):
+        return (abs(c[0] - bg[0]) + abs(c[1] - bg[1])
+                + abs(c[2] - bg[2])) <= CONTENT_TOL
+
+    lx0 = int(clamp(hx / sx, 0, work - 1))
+    lx1 = int(clamp((hx + hw) / sx, 0, work))
+    y0 = int(clamp(hy / sy, 0, h - 1))
+    y1 = int(clamp((hy + hh) / sy, 0, h))
+    pad = int(0.20 * max(1, y1 - y0))
+    asyms = []
+    for y in range(y0 + pad, max(y0 + pad + 1, y1 - pad)):
+        xs = [x for x in range(lx0, lx1) if not is_bg(px[x, y])]
+        if len(xs) < 3:
+            continue
+        ls = (hcx - xs[0] * sx) / max(1.0, hw)
+        rs = (xs[-1] * sx - hcx) / max(1.0, hw)
+        asyms.append((rs - ls) / max(1e-6, rs + ls))
+
+    # 面罩/高光：头部上半部高饱和像素质心相对头框中线的偏移
+    cw = min(240, W)
+    ch = max(1, int(round(H * cw / float(W))))
+    s2 = img.convert("RGB").resize((cw, ch), Image.BILINEAR)
+    p2 = s2.load()
+    x0 = max(0, int(hx * cw / float(W)))
+    x1 = min(cw, int((hx + hw) * cw / float(W)))
+    yy0 = max(0, int(hy * ch / float(H)))
+    yy1 = min(ch, int((hy + 0.60 * hh) * ch / float(H)))
+    sw = cxw = 0.0
+    for y in range(yy0, yy1):
+        for x in range(x0, x1):
+            r, g, b = p2[x, y]
+            mx, mn = max(r, g, b), min(r, g, b)
+            sat = (mx - mn) / 255.0
+            if sat >= 0.35 and mx >= 40:
+                sw += sat
+                cxw += x * sat
+    visor_offset = None
+    if sw >= FACELESS_SAT_MIN:
+        visor_offset = (cxw / sw) * W / float(cw) / max(1.0, hw) - hcx / max(1.0, hw)
+
+    asym = None if not asyms else sum(asyms) / len(asyms)
+    facing, confidence = None, "low"
+    if visor_offset is not None and asym is not None:
+        if abs(visor_offset) <= VISOR_FRONT_MAX and abs(asym) <= 0.06:
+            facing, confidence = "front", "high"
+        elif visor_offset <= -VISOR_SIDE_MIN and asym <= CONTOUR_SIDE_MIN:
+            facing, confidence = "left", "high"
+        elif visor_offset >= VISOR_SIDE_MIN and asym >= -CONTOUR_SIDE_MIN:
+            facing, confidence = "right", "high"
+    return {
+        "metric_set": "head_contour", "mode": "faceless",
+        "contour_asym": None if asym is None else round(asym, 3),
+        "visor_offset": None if visor_offset is None else round(visor_offset, 3),
+        "sat_weight": round(sw, 1),
+        "facing": facing, "confidence": confidence,
+    }
+
+
+def build_crops_faceless(img, head, content=None):
+    """无脸模式裁切：以头部宽度占画面 0.50 为目标，不用眼位。"""
+    W, H = img.size
+    hx, hy, hw, hh = head["box"]
+    hcx = hx + hw / 2.0
+    content_top = None
+    if (content and content.get("applied") and content.get("reliable")
+            and not content.get("empty")):
+        content_top = content["bbox"][1]
+
+    def keep_head(top, s):
+        if content_top is None:
+            return top
+        return min(top, content_top - HEAD_SAFE_MARGIN * s)
+
+    out = []
+    for wr in (0.44, 0.50, 0.56):
+        s = hw / wr
+        s = min(s, min(W, H))
+        ideal_left = hcx - s / 2.0
+        ideal_top = hy - 0.08 * s
+        left = clamp(ideal_left, 0, W - s)
+        top = clamp(keep_head(ideal_top, s), 0, H - s)
+        cost = (abs(left - ideal_left) + abs(top - ideal_top)) / s
+        out.append({"box": (left, top, left + s, top + s), "target": wr,
+                    "cost": round(cost, 4)})
+    s = float(min(W, H))
+    ideal_left = hcx - s / 2.0
+    ideal_top = hy - 0.08 * s
+    left = clamp(ideal_left, 0, W - s)
+    top = clamp(keep_head(ideal_top, s), 0, H - s)
+    out.append({"box": (left, top, left + s, top + s), "target": "full",
+                "cost": round((abs(left - ideal_left) + abs(top - ideal_top)) / s, 4)})
+    return out
+
+
+def score_crop_faceless(img, crop, head, image_content=None):
+    """无脸评分：头部轮廓占比 + 上下留白 + 居中偏移；面部指标全部不参与。"""
+    left, top, right, bottom = crop["box"]
+    s = right - left
+    hx, hy, hw, hh = head["box"]
+    head_ratio = (hw * hh) / (0.785 * s * s)
+    head_width_ratio = hw / s
+    center_offset = abs((hx + hw / 2.0) - (left + s / 2.0)) / s
+    region = img.crop((int(round(left)), int(round(top)),
+                       int(round(left + s)), int(round(top + s))))
+    edge = _edge_cut(region)
+    content = _content_analysis(region)
+    content_gate = _content_gate(content, image_content)
+    # subject_cut 只在平涂背景可判定时生效：写实场景/渐变/模糊背景的边圈
+    # 不全是背景，贴边连续段会被误当主体（实测 adam 背景非平涂时左右误判）。
+    # 不可靠时记 null、不判死，而不是拿不可靠的边圈当截断证据。
+    cut_trust = bool(content.get("applied") and content.get("reliable"))
+    cut_hard = ([e for e in CUT_HARD_EDGES if edge.get(e, {}).get("cut")]
+                if cut_trust else [])
+
+    ratio_score = clamp(1 - abs(head_ratio - HEAD_TARGET) / 0.20, 0, 1)
+    if content.get("reliable"):
+        top_blank = content["top_blank"]
+        bottom_blank = content["bottom_blank"]
+        blank_score = 1 - (abs(top_blank - 0.08) / 0.12
+                           + abs(bottom_blank - 0.05) / 0.16) / 2.0
+        blank_score = clamp(blank_score, 0, 1)
+    else:
+        top_blank = bottom_blank = None
+        blank_score = 0.7            # 不可判定记中性，不冒充满分
+    center_score = clamp(1 - center_offset / 0.15, 0, 1)
+    cost = crop.get("cost", 0.0)
+    composition = 100 * (0.45 * ratio_score + 0.30 * blank_score
+                         + 0.25 * center_score)
+    composition -= COST_PENALTY * clamp(cost / COST_TOL, 0, 1)
+    composition = clamp(composition, 0, 100)
+
+    head_in_crop = (hx - left, hy - top, hw, hh)
+    sharp = sharpness(region, head_in_crop)
+    sharp_score = clamp(100 * (math.log(sharp + 1) - math.log(11.0)) /
+                        (math.log(101.0) - math.log(11.0)), 0, 100)
+    blown = blown_ratio(region, head_in_crop)
+    exposure_score = 100 * (1 - clamp((blown - 0.25) / 0.50, 0, 1))
+    face_quality = clamp(0.80 * sharp_score + 0.20 * exposure_score, 0, 100)
+
+    reasons = []
+    if not (HEAD_RATIO_MIN <= head_ratio <= HEAD_RATIO_MAX):
+        reasons.append("composition_bad:head_ratio")
+    if center_offset > CENTER_OFFSET_MAX:
+        reasons.append("composition_bad:centering")
+    if cut_hard:
+        reasons.append("composition_bad:subject_cut")
+    reasons.extend(content_gate["reasons"])
+    if sharp < BLUR_MIN:
+        reasons.append("face_blurry")
+
+    total = (W_FACE_QUALITY * face_quality + W_COMPOSITION * composition) / \
+            float(W_FACE_QUALITY + W_COMPOSITION)
+    return {
+        "box": [round(v, 1) for v in crop["box"]],
+        "native_size": int(round(s)),
+        "metric_set": "head_contour",
+        "face_metrics_applied": False,
+        "metrics": {
+            "head_ratio": round(head_ratio, 3),
+            "head_width_ratio": round(head_width_ratio, 3),
+            "center_offset": round(center_offset, 3),
+            "top_blank": top_blank,
+            "bottom_blank": bottom_blank,
+            "face_ratio": None,
+            "eye_center_y": None,
+            "eye_tilt": None,
+            "cut_edges": cut_hard,
+            "edge_contact": {k: edge[k]["contact"] for k in ("top", "bottom", "left", "right")},
+            "sharpness": round(sharp, 2),
+            "blown": round(blown, 3),
+            "crop_cost": round(cost, 3),
+            "content": {k: content.get(k) for k in
+                        ("reliable", "top_blank", "bottom_blank", "left_blank",
+                         "right_blank", "share", "top_run_ratio", "bbox")},
+            "content_gate": content_gate,
+        },
+        "scores": {
+            "face_quality": round(face_quality, 1),
+            "face_quality_parts": {"sharpness": round(sharp_score, 1),
+                                   "symmetry": None, "exposure": round(exposure_score, 1)},
+            "composition": round(composition, 1),
+            "style": None, "emotion": None, "anatomy": None,
+        },
+        "total": round(total, 1),
+        "reasons": reasons,
+    }
+
+
 def thumb_readability(crop_img):
     """96px 缩图可读性：灰度对比 + 边缘能量，归一化到 0~1。"""
     small = crop_img.convert("L").resize((96, 96), resample())
@@ -1377,7 +1621,14 @@ def load_json(path):
 
 
 def _corner_color(img, patch=0.04):
-    """四角 patch 的中位色，作为平涂背景估计；估不出时返回 None。"""
+    """四角 patch 的主色，作为平涂背景估计；估不出时返回 None。
+
+    先逐角取中位色，再选「与最多角一致」的那一簇，而不是把四角平均。
+    四角平均/逐通道中位在「上两角白底、下两角深色装甲」时折成灰，
+    既不是背景也不是主体：背景占比被低估、平涂底被判 busy，
+    平涂背景下的截断判定也随之失效。角簇打平时优先上方两角
+    （胸像头像背景通常在上半部）。
+    """
     w, h = img.size
     px = img.convert("RGB").load()
     n = max(4, int(min(w, h) * patch))
@@ -1395,10 +1646,14 @@ def _corner_color(img, patch=0.04):
             corners.append((rs[len(rs) // 2], gs[len(gs) // 2], bs[len(bs) // 2]))
     if not corners:
         return None
-    br = sum(c[0] for c in corners) / float(len(corners))
-    bgc = sum(c[1] for c in corners) / float(len(corners))
-    bb = sum(c[2] for c in corners) / float(len(corners))
-    return br, bgc, bb
+    best, best_key = None, None
+    for i, c in enumerate(corners):
+        near = sum(1 for d in corners
+                   if abs(c[0] - d[0]) + abs(c[1] - d[1]) + abs(c[2] - d[2]) <= 60)
+        key = (near, 1 if i < 2 else 0)
+        if best_key is None or key > best_key:
+            best, best_key = c, key
+    return best
 
 
 def _background_stats(img, tol=50):
@@ -1498,6 +1753,11 @@ def check_style(metrics, profile):
     if not profile:
         return None
     gate = profile.get("gate") or {}
+    if gate.get("applicable") is False:
+        return {"passed": None, "applicable": False, "checks": {},
+                "reasons": ["style_not_applicable"],
+                "note": gate.get("note") or
+                        "风格档案声明该维度不适用：记 null，不当作通过"}
     checks = {}
     lo, hi = gate.get("palette_colors", [0, 999])
     checks["palette_colors"] = lo <= metrics["palette_colors"] <= hi
@@ -1571,6 +1831,25 @@ def detect_angle(img, face, metrics):
     """
     eyes = face.get("eyes") or []
     visible = 2 if len(eyes) >= 2 else (1 if (face.get("profile") or len(eyes) == 1) else None)
+    if visible == 2:
+        fx, fy, fw, fh = face["box"]
+        balance = None
+        if fw:
+            ex = [(e[0] - fx) / float(fw) for e in eyes[:2]]
+            balance = abs(sum(ex) / 2.0 - 0.5)
+        return {
+            "visible_eyes": 2,
+            "pupil_edge": None,
+            "skin_centroid": None,
+            "nose_side": None,
+            "facing": "front",
+            "is_front": True,
+            "is_profile": False,
+            "eye_balance": None if balance is None else round(balance, 3),
+            "eye_center_y": metrics.get("eye_center_y"),
+            "confidence": "high" if (balance is not None
+                                     and balance <= FRONT_EYE_BALANCE_MAX) else "medium",
+        }
     pupil_edge = None
     if len(eyes) == 1:
         fx, fy, fw, fh = face["box"]
@@ -1628,6 +1907,66 @@ def check_angle(expected_id, detected, metrics, matrix):
 
     checks = {"single_eye": detected["visible_eyes"] == 1,
               "is_profile": detected["is_profile"]}
+
+    if detected.get("metric_set") == "head_contour":
+        off = detected.get("visor_offset")
+        asym = detected.get("contour_asym")
+        yaw = angle.get("yaw")
+        checks = {"signal_available": off is not None and asym is not None}
+        if off is not None:
+            if yaw == "front":
+                checks["visor_centered"] = abs(off) <= VISOR_FRONT_MAX + 0.02
+            elif yaw == "left":
+                checks["visor_side"] = off <= -VISOR_SIDE_MIN
+            elif yaw == "right":
+                checks["visor_side"] = off >= VISOR_SIDE_MIN
+        if asym is not None:
+            if yaw == "front":
+                checks["contour_symmetric"] = abs(asym) <= 0.08
+            elif yaw == "left":
+                checks["contour_side"] = asym <= CONTOUR_SIDE_MIN
+            elif yaw == "right":
+                checks["contour_side"] = asym >= -CONTOUR_SIDE_MIN
+        facing = detected.get("facing")
+        checks["facing"] = None if facing is None else (facing == yaw)
+        passed = all(v is True for v in checks.values())
+        direction_known = facing in ("front", "left", "right")
+        reason = None if passed else ("angle_undetermined" if not direction_known
+                                      else "angle_mismatch")
+        return {"expected": expected_id, "label": angle.get("label"),
+                "enabled": True, "detected": detected, "passed": passed,
+                "checks": checks, "reason": reason,
+                "direction_known": direction_known,
+                "metric_set": "head_contour",
+                "side_check_note": "无脸判据：面罩/高光横向偏移 + 头盔轮廓左右对称性；"
+                                   "偏移/对称信号缺失或冲突即 angle_undetermined"}
+
+    family = angle.get("family") or ("frontal" if expected_id in ("front", "frontal") else "profile")
+    if family == "frontal":
+        ey = metrics.get("eye_center_y")
+        elo, ehi = angle.get("eye_y", FRONT_EYE_Y)
+        tilt = metrics.get("eye_tilt")
+        bal = detected.get("eye_balance")
+        checks = {
+            "two_eyes": detected.get("visible_eyes") == 2,
+            "facing_front": detected.get("facing") == "front",
+            "eye_y": None if ey is None else (elo <= ey <= ehi),
+            "eye_tilt": None if tilt is None else (tilt <= FRONT_EYE_TILT_MAX),
+            "eye_balance": None if bal is None else (bal <= FRONT_EYE_BALANCE_MAX),
+        }
+        passed = all(v is True for v in checks.values())
+        direction_known = detected.get("facing") in ("front", "left", "right")
+        reason = None if passed else ("angle_mismatch" if direction_known
+                                      else "angle_undetermined")
+        return {"expected": expected_id, "label": angle.get("label"),
+                "enabled": True, "detected": detected, "passed": passed,
+                "checks": checks, "reason": reason,
+                "direction_known": direction_known,
+                "side_check_note": "正脸判据：双眼检出 + 眼位 %.2f–%.2f（现有正样本实测 "
+                                   "0.303–0.316）+ 双眼水平平衡 ≤%.2f + 眼线倾斜 ≤%.2f；"
+                                   "不套用侧脸 0.32–0.46"
+                                   % (elo, ehi, FRONT_EYE_BALANCE_MAX, FRONT_EYE_TILT_MAX)}
+
     lo, hi = angle.get("pupil_edge", [0.0, 1.0])
     pe = detected.get("pupil_edge")
     checks["pupil_in_range"] = None if pe is None else (lo <= pe <= hi)
@@ -1640,10 +1979,18 @@ def check_angle(expected_id, detected, metrics, matrix):
     if ey is not None:
         elo, ehi = angle.get("eye_y", [0.0, 1.0])
         checks["eye_y"] = elo <= ey <= ehi
-    # 方向必须能判出来：瞳孔/鼻尖侧缺失或冲突时不算通过
-    passed = all(v is True for v in checks.values())
+    # 方向必须能判出来：瞳孔/鼻尖侧缺失或冲突时不算通过。
+    # 例外：瞳孔横向位置极度偏向一侧（≤0.12 / ≥0.88）时方向已经确定，
+    # 鼻尖交叉校验不可用（肤色重心落在中线）不应把明确方向判成未定；
+    # 鼻尖与瞳孔冲突时 facing 本身为 None，仍判 angle_undetermined。
+    # 其余 None（眼位算不出等）仍视为不可判定，不放水。
+    strong_pupil = pe is not None and (pe <= 0.12 or pe >= 0.88)
+    evaluated = {k: v for k, v in checks.items()
+                 if not (k == "nose_side" and v is None and strong_pupil)}
+    passed = all(v is True for v in evaluated.values())
     direction_known = (pe is not None and facing in ("left", "right")
-                       and nose in ("left", "right"))
+                       and (nose in ("left", "right")
+                            or (nose is None and strong_pupil)))
     if passed:
         reason = None
     elif not direction_known:
@@ -1660,7 +2007,8 @@ def check_angle(expected_id, detected, metrics, matrix):
 
 
 GENDERS = ("male", "female", "unspecified")
-ANGLE_IDS = ("profile_left", "profile_right")
+FACE_MODES = ("faced", "faceless")
+ANGLE_IDS = ("profile_left", "profile_right", "front")
 DEFAULT_ANGLE_BY_GENDER = {"male": "profile_left", "female": "profile_right",
                            "unspecified": "profile_left"}
 
@@ -1691,6 +2039,8 @@ def normalize_brief(brief, card, budget):
     out["gender_source"] = gender_source
 
     explicit_angle = out.get("angle")
+    if explicit_angle in ("frontal", "front"):
+        explicit_angle = "front"
     if explicit_angle:
         angle = explicit_angle
         angle_source = out.get("angle_source") or "user"
@@ -1702,6 +2052,14 @@ def normalize_brief(brief, card, budget):
     out["angle"] = angle
     out["angle_source"] = angle_source
     out["needs_gender_confirmation"] = (gender == "unspecified")
+
+    # 无脸/皮套模式：角色卡优先，brief 显式覆盖；默认有脸
+    face_mode = (out.get("face_mode") or card.get("face_mode")
+                 or (card.get("face") or {}).get("mode") or "faced")
+    if face_mode not in FACE_MODES:
+        errors.append("face_mode 必须是 %s" % "/".join(FACE_MODES))
+        face_mode = "faced"
+    out["face_mode"] = face_mode
 
     out["size"] = str(out.get("size") or "1024")
     out["formats"] = out.get("formats") or [out["size"]]
@@ -1745,6 +2103,157 @@ def check_character(checklist, card):
     return {"character_id": card.get("character_id"), "passed": not missing,
             "items": results, "missing": missing,
             "reasons": ["character_missing:" + k for k in missing]}
+
+
+# ---------------------------------------------------------------- 参考图与后端能力
+
+REF_STYLE_INFORMATIONAL = 0.35   # 仅用于报告提示，不作为硬门槛
+
+
+def _palette_hist(img, bins=4):
+    small = img.convert("RGB").resize((128, 128), Image.BILINEAR)
+    px = small.load()
+    hist = [0] * (bins ** 3)
+    for y in range(128):
+        for x in range(128):
+            r, g, b = px[x, y]
+            idx = ((r * bins // 256) * bins + (g * bins // 256)) * bins + (b * bins // 256)
+            hist[idx] += 1
+    total = float(128 * 128)
+    return [v / total for v in hist]
+
+
+def reference_similarity(img, refs):
+    """参考图相似度：风格可算（色板/饱和度/边缘密度），身份无模型记 null。"""
+    if not refs:
+        return None
+    base_hist = _palette_hist(img)
+    base = style_metrics(img)
+    items = []
+    for ref in refs:
+        rimg = ref["image"]
+        rmet = style_metrics(rimg)
+        inter = sum(min(a, b) for a, b in zip(base_hist, _palette_hist(rimg)))
+        sat_sim = 1 - clamp(abs(base["saturation"] - rmet["saturation"]) / 0.35, 0, 1)
+        edge_sim = 1 - clamp(abs(base["edge_density"] - rmet["edge_density"]) / 0.12, 0, 1)
+        style_sim = 0.50 * inter + 0.25 * sat_sim + 0.25 * edge_sim
+        items.append({
+            "path": ref.get("path"), "role": ref.get("role"),
+            "palette_intersection": round(inter, 3),
+            "saturation_delta": round(abs(base["saturation"] - rmet["saturation"]), 3),
+            "edge_density_delta": round(abs(base["edge_density"] - rmet["edge_density"]), 3),
+            "style_similarity": round(style_sim, 3),
+        })
+    mean_style = sum(i["style_similarity"] for i in items) / len(items)
+    return {
+        "style_similarity": round(mean_style, 3),
+        "identity_similarity": None,
+        "identity_note": ("无身份 embedding 模型，identity 相似度记 null；"
+                          "不能用色板相似度冒充身份一致，请按人工清单核对"),
+        "manual_identity_checklist": ["发型/耳鳍轮廓", "头盔/面罩形状", "装甲配色分区",
+                                      "胸口或肩部标识", "身材比例与年龄感"],
+        "per_reference": items,
+        "informational": mean_style < REF_STYLE_INFORMATIONAL,
+        "note": "style_similarity 只比较可算的像素统计，不是风格/身份 embedding",
+    }
+
+
+def default_backends_path():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "references", "backends.json")
+
+
+def default_angles_path():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "references", "angles.json")
+
+
+def check_generation(gen, registry):
+    """调用前能力检测：后端不支持参考图时默认 fail，绝不静默退回文生图。"""
+    if not gen:
+        return None
+    backends = {b.get("id"): b for b in (registry or {}).get("backends", [])}
+    bid = gen.get("backend")
+    backend = backends.get(bid)
+    refs = gen.get("reference_images") or []
+    mode = gen.get("mode") or ("reference" if refs else "text2img")
+    fallback = gen.get("fallback") or "fail"
+    ref_cap = (backend or {}).get("reference_images") or {}
+    supported = bool(ref_cap.get("supported"))
+    max_refs = int(ref_cap.get("max") or 0)
+    errors, warnings = [], []
+    if backend is None:
+        errors.append("未知后端 %r：先在 references/backends.json 登记并跑能力检测"
+                      % bid)
+    elif backend.get("available") is False:
+        errors.append("后端 %r 未接入（available=false），不得当作可用" % bid)
+    if (mode == "reference" or refs) and not supported:
+        if fallback == "text2img":
+            warnings.append("后端 %r 不支持参考图入参，按用户显式同意退回 text2img；"
+                            "本单 identity_unverified=true，报告中必须显著标注"
+                            % bid)
+        else:
+            errors.append("后端 %r 未暴露参考图入参，默认 fallback=fail："
+                          "不得调用生成，也不得静默退回文生图" % bid)
+    if refs and max_refs and len(refs) > max_refs:
+        errors.append("参考图 %d 张超过后端上限 %d 张" % (len(refs), max_refs))
+    strength = gen.get("strength")
+    rng = ref_cap.get("strength_range")
+    if strength is not None and rng and not (rng[0] <= float(strength) <= rng[1]):
+        errors.append("strength=%s 超出后端范围 %s" % (strength, rng))
+    identity_unverified = bool((mode == "reference" or refs) and not supported
+                               and fallback == "text2img")
+    return {
+        "backend": bid,
+        "backend_name": (backend or {}).get("display_name"),
+        "mode": mode,
+        "reference_images": refs,
+        "strength": strength,
+        "fallback": fallback,
+        "reference_input_supported": supported,
+        "max_reference_images": max_refs,
+        "identity_unverified": identity_unverified,
+        "errors": errors,
+        "warnings": warnings,
+        "host_note": "参考图能力取决于宿主/后端；换宿主必须重新跑一次能力检测",
+    }
+
+
+def load_reference_images(arg_refs, brief, raw_dir, brief_path):
+    """从 --references / brief.generation / <订单>/refs 收集参考图。"""
+    out = []
+    base = os.path.dirname(os.path.abspath(brief_path)) if brief_path else raw_dir
+    items = []
+    if arg_refs:
+        for p in arg_refs.split(","):
+            p = p.strip()
+            if p:
+                items.append({"path": p, "role": "style"})
+    elif brief:
+        for it in ((brief.get("generation") or {}).get("reference_images") or []):
+            if isinstance(it, str):
+                items.append({"path": it, "role": "style"})
+            elif isinstance(it, dict) and it.get("path"):
+                items.append({"path": it["path"], "role": it.get("role")})
+    if not items:
+        refs_dir = os.path.join(os.path.dirname(os.path.abspath(raw_dir)), "refs")
+        if os.path.isdir(refs_dir):
+            for f in sorted(os.listdir(refs_dir)):
+                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                    items.append({"path": os.path.join(refs_dir, f),
+                                  "role": "style"})
+    for it in items:
+        p = it["path"]
+        if not os.path.isabs(p):
+            p = os.path.join(base, p)
+        try:
+            im = Image.open(p)
+            im.load()
+            out.append({"path": p, "role": it.get("role"),
+                        "image": im.convert("RGB")})
+        except Exception as exc:
+            print("reference unreadable: %s (%s)" % (p, exc))
+    return out
 
 
 def draw_sheet(items, out_path, cell=300, label_h=34, cols=4):
@@ -1845,6 +2354,12 @@ def main():
                     help="本单生成预算（默认 10，保守模式；量产需显式调大）")
     ap.add_argument("--allow-over-budget", action="store_true",
                     help="超预算仍继续（必须先取得用户确认）")
+    ap.add_argument("--face-mode", choices=FACE_MODES, default=None,
+                    help="faced / faceless；缺省读 brief 或角色卡（默认 faced）")
+    ap.add_argument("--backends", default=None,
+                    help="生成后端能力注册表 JSON（默认 references/backends.json）")
+    ap.add_argument("--references", default=None,
+                    help="参考图路径，逗号分隔；缺省读 brief.generation 或 <订单>/refs")
     args = ap.parse_args()
 
     raw_dir, out_dir = args.raw, args.out
@@ -1892,6 +2407,8 @@ def main():
 
     profile = load_json(args.style)
     card = load_json(args.character)
+    if not args.angles:
+        args.angles = default_angles_path()
     angle_matrix = load_json(args.angles)
     checklist = load_json(args.checklist)
     char_gate = check_character(checklist, card)
@@ -1900,6 +2417,26 @@ def main():
         print("brief invalid: " + "; ".join(brief_errors))
         return 4
     expected_default = args.expected_angle or (norm or {}).get("angle")
+    if expected_default == "frontal":
+        expected_default = "front"
+    face_mode = args.face_mode or (norm or {}).get("face_mode") or "faced"
+
+    # 参考图能力检测（调用前置）：不支持时默认 fail，绝不静默退回文生图
+    backends = load_json(args.backends or default_backends_path())
+    gen_check = check_generation((brief or {}).get("generation"), backends)
+    if gen_check and gen_check["errors"]:
+        for e in gen_check["errors"]:
+            print("generation capability: " + e)
+        print("已停止：参考图能力不满足，退不退回文生图只能由用户显式决定。")
+        return 4
+    refs = load_reference_images(args.references, brief, raw_dir, brief_path)
+    if gen_check:
+        if gen_check["identity_unverified"]:
+            print("WARNING: 本单 identity_unverified=true —— 参考图未真正参与生成，"
+                  "只在报告里标注，不能当作身份一致。")
+        if (gen_check["mode"] == "reference" or gen_check["reference_images"]) and not refs:
+            print("参考图模式缺少可读参考图：按 fallback=fail 停止（退出码 4）。")
+            return 4
 
     results = []
     for name in files:
@@ -1914,24 +2451,36 @@ def main():
                             "verdict": "ERROR", "total": 0.0, "reasons": ["open_failed"]})
             continue
 
-        face = detect_face(img)
         image_content = _content_analysis(img)
+        if face_mode == "faceless":
+            face = _faceless_head(img, image_content)
+        else:
+            face = detect_face(img)
         if not face:
             results.append({
                 "id": item_id, "file": name, "verdict": "REJECT", "total": 0.0,
                 "metrics": {}, "scores": {}, "gates": {"face": False},
                 "reasons": ["locate_failed"],
-                "locate": {"stage": "locate", "from": "no_face",
-                           "note": "眼睛/肤色/头部轮廓回退都未定位到主体；"
-                                   "这是定位失败，不等于构图不合格"},
+                "face_mode": face_mode,
+                "locate": {"stage": "locate",
+                           "from": "faceless_locate" if face_mode == "faceless" else "no_face",
+                           "note": ("无脸轮廓回退也未定位到头部；"
+                                    if face_mode == "faceless" else
+                                    "眼睛/肤色/头部轮廓回退都未定位到主体；")
+                                   + "这是定位失败，不等于构图不合格"},
                 "raw": {"content": image_content},
                 "outputs": {}, "detect": None})
             continue
 
         best = None
         best_any = None
-        for cand in build_crops(img, face, image_content):
-            sc = score_crop(img, cand, face, image_content)
+        candidates = (build_crops_faceless(img, face, image_content)
+                      if face_mode == "faceless"
+                      else build_crops(img, face, image_content))
+        for cand in candidates:
+            sc = (score_crop_faceless(img, cand, face, image_content)
+                  if face_mode == "faceless"
+                  else score_crop(img, cand, face, image_content))
             if best_any is None or sc["total"] > best_any["total"]:
                 best_any = sc
             # 优先交付「构图闸门全过」的候选；已紧构图的原图用全幅候选，
@@ -1960,8 +2509,26 @@ def main():
         cmetrics = canvas_metrics(master)
         canvas_gate = check_canvas(cmetrics)
         expected_angle = resolve_angle(name, angle_matrix, expected_default)
-        detected_angle = detect_angle(img, face, best["metrics"])
+        angle_metrics = None
+        if face_mode == "faceless":
+            angle_metrics = _faceless_angle_metrics(img, face, image_content)
+            detected_angle = {
+                "visible_eyes": None, "pupil_edge": None,
+                "skin_centroid": None, "nose_side": None,
+                "facing": angle_metrics["facing"],
+                "is_profile": False,
+                "is_front": angle_metrics["facing"] == "front",
+                "eye_center_y": None,
+                "confidence": angle_metrics["confidence"],
+                "metric_set": "head_contour",
+                "visor_offset": angle_metrics["visor_offset"],
+                "contour_asym": angle_metrics["contour_asym"],
+                "sat_weight": angle_metrics["sat_weight"],
+            }
+        else:
+            detected_angle = detect_angle(img, face, best["metrics"])
         angle_gate = check_angle(expected_angle, detected_angle, best["metrics"], angle_matrix)
+        ref_sim = reference_similarity(master, refs) if refs else None
 
         tid, tedge, tcontrast = thumb_readability(master)
         content_codes = ("composition_bad:whitespace",
@@ -1982,6 +2549,9 @@ def main():
             reasons.append("low_conf")
         if style_gate and not style_gate["passed"]:
             reasons.extend(style_gate["reasons"])
+        if face_mode == "faceless" and style_gate is None:
+            # 无脸模式不允许把「没有风格档案」当成风格通过
+            reasons.append("style_unverified")
         if char_gate and not char_gate["passed"]:
             reasons.extend(char_gate["reasons"])
         if not canvas_gate["passed"]:
@@ -2026,7 +2596,8 @@ def main():
             "scores": best["scores"],
             "native_size": best["native_size"],
             "gates": {
-                "face": True,
+                "face": True if face_mode == "faced" else None,
+                "head_contour": True if face_mode == "faceless" else None,
                 "composition": not any(r.startswith("composition_bad") for r in reasons),
                 "content": final_content_gate["passed"],
                 "content_input": input_content_gate["passed"],
@@ -2048,6 +2619,12 @@ def main():
             "character_check": char_gate,
             "thumb": {"score": tid, "edge": tedge, "contrast": tcontrast},
             "reasons": reasons,
+            "face_mode": face_mode,
+            "metric_set": best.get("metric_set", "face_metrics"),
+            "face_metrics_applied": best.get("face_metrics_applied", True),
+            "angle_metrics": angle_metrics,
+            "reference_similarity": ref_sim,
+            "generation": gen_check,
             "gate_scope": "final_crop",
             "final_gate": {
                 "metric_set": "content_bbox",
@@ -2120,6 +2697,9 @@ def main():
             "angle_matrix": {"path": args.angles,
                              "angles": [a["id"] for a in (angle_matrix or {}).get("angles", [])]},
             "checklist": {"path": args.checklist, "provided": checklist is not None},
+            "face_mode": face_mode,
+            "generation": gen_check,
+            "reference_images": [{"path": r["path"], "role": r.get("role")} for r in refs],
             "order": {
                 "confirmed": bool(confirm and confirm["confirmed"]),
                 "confirmation_source": (confirm or {}).get("source"),
@@ -2143,6 +2723,8 @@ def main():
                           "subject_cut_check", "canvas_frame_check",
                           "content_whitespace_share_check", "head_cut_check",
                           "content_head_fallback", "final_crop_gate",
+                          "faceless_head_contour_mode", "front_angle_gate",
+                          "reference_similarity", "backend_capability_check",
                           "character_checklist_gate"],
             "unavailable": ["ocr_text", "nsfw", "emotion", "style_embedding", "anatomy",
                             "real_esrgan_superres"],
@@ -2159,6 +2741,8 @@ def main():
             "pass": len(passed),
             "reject": len(results) - len(passed),
             "best_total": ranked[0]["total"] if ranked else 0,
+            "face_mode": face_mode,
+            "identity_unverified": bool(gen_check and gen_check["identity_unverified"]),
             "contact_sheet": "contact_sheet.jpg" if sheet_items else None,
         },
         "items": [{k: v for k, v in r.items() if k not in ("image", "ahash")} for r in ranked],
@@ -2178,16 +2762,29 @@ def main():
                ranked[0]["total"] if ranked else 0),
               "预算 %d 张，实际 raw %d 张，剩余 %d 张%s" %
               (budget["limit"], budget["used"], budget["remaining"],
-               "（已超预算，经确认继续）" if budget["exceeded"] else ""), "",
-              "| # | 图 | 角度 | 总分 | 脸占比 | 眼睛位置 | 截断 | 画布 | 风格 | 角色 | 角度判定 | 结论 | 原因 |",
+               "（已超预算，经确认继续）" if budget["exceeded"] else ""), ""]
+    if gen_check and gen_check["identity_unverified"]:
+        lines += ["> **警告：本单 identity_unverified=true。** 后端 `%s` 不支持参考图入参，"
+                  "按用户显式同意退回 text2img；参考图未参与生成，"
+                  "不能据此认为身份一致。" % gen_check.get("backend"), ""]
+    if gen_check and gen_check["warnings"]:
+        lines += ["> " + w for w in gen_check["warnings"]] + [""]
+    if face_mode == "faceless":
+        lines += ["无脸/皮套模式（`face_mode=faceless`）：指标集为 `head_contour`，"
+                  "眼部/双侧对称/面部占比不参与评分，改为头部轮廓占比 + 上下留白 + 居中偏移；"
+                  "角度用面罩/高光偏移 + 头盔轮廓对称性判定。", ""]
+    lines += ["| # | 图 | 角度 | 总分 | 脸占比 | 眼睛位置 | 截断 | 画布 | 风格 | 角色 | 角度判定 | 结论 | 原因 |",
               "|-|-|-|-|-|-|-|-|-|-|-|-|-|"]
     for i, r in enumerate(ranked, 1):
         m = r.get("metrics", {})
         ac = r.get("angle_check") or {}
         det = ac.get("detected") or {}
         if det:
-            face_txt = {"left": "朝左", "right": "朝右"}.get(det.get("facing"), "方向未定")
-            angle_txt = "%s/%s眼" % (face_txt, det.get("visible_eyes", "-"))
+            face_txt = {"left": "朝左", "right": "朝右",
+                        "front": "正面"}.get(det.get("facing"), "方向未定")
+            angle_txt = ("%s/轮廓" % face_txt
+                         if det.get("metric_set") == "head_contour"
+                         else "%s/%s眼" % (face_txt, det.get("visible_eyes", "-")))
         else:
             angle_txt = "-"
         style_ok = r.get("gates", {}).get("style")
@@ -2214,6 +2811,18 @@ def main():
             c.get("share", "-"), c.get("top_run_ratio", "-"),
             "n/a" if gate.get("passed") is None
             else ("PASS" if gate.get("passed") else "FAIL")))
+    if any(r.get("face_mode") == "faceless" for r in ranked):
+        lines += ["", "| 图 | 头占比 | 头宽比 | 居中偏移 | 面罩偏移 | 轮廓不对称 | 指标集 |",
+                  "|-|-|-|-|-|-|-|"]
+        for r in ranked:
+            if r.get("face_mode") != "faceless":
+                continue
+            m = r.get("metrics") or {}
+            am = r.get("angle_metrics") or {}
+            lines.append("| %s | %s | %s | %s | %s | %s | %s |" % (
+                r["id"], m.get("head_ratio", "-"), m.get("head_width_ratio", "-"),
+                m.get("center_offset", "-"), am.get("visor_offset", "-"),
+                am.get("contour_asym", "-"), r.get("metric_set", "-")))
     lines += ["", "| 图 | 主色数 | 饱和度 | 边缘密度 | 背景占比 | 背景 stddev | 背景 |",
               "|-|-|-|-|-|-|-|"]
     for r in ranked:
@@ -2222,6 +2831,17 @@ def main():
             r["id"], s.get("palette_colors", "-"), s.get("saturation", "-"),
             s.get("edge_density", "-"), s.get("background_share", "-"),
             s.get("background_stddev", "-"), s.get("background_mode", "-")))
+    if refs:
+        lines += ["", "| 图 | 参考风格相似度 | 身份相似度 | 说明 |", "|-|-|-|-|"]
+        for r in ranked:
+            rs = r.get("reference_similarity") or {}
+            lines.append("| %s | %s | %s | %s |" % (
+                r["id"], rs.get("style_similarity", "-"),
+                "null（无 embedding）" if rs.get("identity_similarity") is None else
+                rs.get("identity_similarity"),
+                "风格相似度仅为色板/饱和度/边缘统计，不是身份一致"))
+        lines += ["", "身份核对需人工过清单：发型/耳鳍、头盔/面罩、装甲配色、胸口或肩部标识、比例年龄感。",
+                  "参考图是否真正参与生成取决于后端能力；换宿主必须重新跑能力检测。"]
     lines += ["", "原因码释义：" + "；".join("%s=%s" % (k, v) for k, v in REASON_LABEL.items()),
               "",
               "> 已紧构图的原图会选中「全幅」候选，不再为凑目标脸占比二次放大裁切；",
@@ -2230,7 +2850,9 @@ def main():
               "> 画布闸门检查方形与边框/装饰圈；带圆环的画框会记 canvas_bad:frame；",
               "> 风格闸门是粗指标，只拦明显异体系；角色闸门依赖人工清单，缺必填项不放行；",
               "> 角度判定覆盖侧脸双向：朝左 pupil_edge ≤0.42 + 鼻尖侧左；朝右 ≥0.58 + 鼻尖侧右；"
-              "方向判不出记 angle_undetermined，交人工确认；",
+              "正脸需双眼检出 + 眼位 %.2f–%.2f（现有正样本 0.303–0.316）+ 水平平衡/倾斜；"
+              "3/4 与仰俯仍 reserved，命中记 angle_mismatch；"
+              "方向判不出记 angle_undetermined，交人工确认；" % (FRONT_EYE_Y[0], FRONT_EYE_Y[1]),
               "> 默认朝向按性别：男左、女右、未指定默认左；用户可覆盖；带 brief 时必须有 confirm.confirmed，否则拒绝执行；",
               "> 单眼判定仍可能把远眼未检出的 3/4 脸当成侧脸，800px 人工复查不可省。",
               "> 情绪、解剖、风格 embedding 无本地模型，记 null，不参与总分。"]

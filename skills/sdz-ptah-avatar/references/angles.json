@@ -1,7 +1,7 @@
 {
   "schema": "angle-matrix/1.2",
-  "version": "1.3.0",
-  "current_scope": "profile_left_right",
+  "version": "1.4.0",
+  "current_scope": "profile_left_right_front",
   "default_rule": {
     "by_gender": {
       "male": "profile_left",
@@ -9,19 +9,35 @@
       "unspecified": "profile_left"
     },
     "gender_source": "用户明确说明 > 角色卡 gender 字段 > unspecified",
-    "override": "用户在会话或确认页手动指定朝左/朝右时，以用户为准",
+    "override": "用户在会话或确认页手动指定朝左/朝右/正面时，以用户为准",
     "unspecified_note": "未指定性别时一律默认朝左，不从参考图推断性别；确认页必须提示「未指定性别，已按朝左」",
     "undetermined": "角度判定判不出方向时返回 angle_undetermined：FAIL 并暂停，交人工确认，不自动猜测"
   },
-  "scope_note": "侧脸朝左、朝右均启用。默认朝向按性别：男左、女右、未指定默认左；用户可手动覆盖。正脸、3/4、仰俯仍为预留项，不实现、不产出、不测试。执行时不得自行扩范围。",
+  "scope_note": "侧脸朝左、朝右与正脸均启用。默认朝向按性别：男左、女右、未指定默认左；正脸需用户或角色需求显式指定。3/4、仰俯仍为预留项，命中即 angle_mismatch，不产出、不测试。",
   "detection": {
-    "method": "visible_eyes + pupil_edge + nose_side + eye_y（双向）",
+    "method": "侧脸：visible_eyes + pupil_edge + nose_side + eye_y；正脸：双眼检出 + eye_y + 眼线倾斜 + 双眼水平平衡；无脸：面罩/高光偏移 + 头盔轮廓对称性",
     "single_eye_required": true,
     "pupil_edge_left_max": 0.42,
     "pupil_edge_right_min": 0.58,
     "facing_convention": "朝左 = 可见眼位于头部框左半（pupil_edge ≤0.42）且肤色重心/鼻尖侧偏左；朝右 = 可见眼位于右半（pupil_edge ≥0.58）且肤色重心/鼻尖侧偏右。瞳孔与鼻尖侧交叉校验，冲突或缺失判方向未定。",
-    "calibration": "实测：朝左样本 pupil_edge=0.178，朝右样本 pupil_edge=0.789；两向阈值以 0.42 / 0.58 分开，中间带判为未定。",
-    "note": "无眼白回退时方向未知，返回 angle_undetermined，需人工确认；角度闸门不实现正脸 / 3-4 分支。"
+    "calibration": "实测：朝左样本 pupil_edge=0.178，朝右样本 pupil_edge=0.789；正脸样本 eye_center_y=0.303–0.316。正脸区间取 0.24–0.38，不套用侧脸 0.32–0.46。",
+    "front": {
+      "visible_eyes": 2,
+      "eye_y": [0.24, 0.38],
+      "calibrated_from": ["verify/raw v1_r1–v4_r2 共 8 张正脸样本（eye_center_y 0.303–0.316）"],
+      "eye_tilt_max": 0.07,
+      "eye_balance_max": 0.08,
+      "note": "双眼必须检出且水平基本对称；3/4 脸通常也会检出双眼，但眼位/倾斜/平衡不同，仍按 reserved 处理并记 angle_mismatch。"
+    },
+    "faceless": {
+      "method": "visor_offset + contour_asym",
+      "visor_offset_side_min": 0.08,
+      "visor_offset_front_max": 0.06,
+      "contour_side_min": 0.05,
+      "calibrated_from": ["极狐 6 张：朝左面罩偏移 -0.22~-0.24，朝右 +0.22~+0.27，正面 +0.02"],
+      "note": "面罩/高光偏移与头盔左右轮廓对称性冲突或信号缺失时判 angle_undetermined，不猜。"
+    },
+    "note": "无眼白回退时方向未知，返回 angle_undetermined，需人工确认；3/4 与仰俯不实现。"
   },
   "canvas": {
     "aspect": "1:1",
@@ -58,17 +74,19 @@
       "forbid": "不要出现远侧眼睛、眼白、眉毛；不要画成四分之三脸或正脸；不要加圆形画框或装饰圈"
     },
     {
-      "id": "frontal",
-      "label": "正脸（预留，暂不产出）",
+      "id": "front",
+      "label": "正脸（启用）",
       "family": "frontal",
       "yaw": "front",
-      "enabled": false,
-      "status": "reserved",
+      "enabled": true,
       "visible_eyes": [2, 2],
       "pupil_edge": [0.38, 0.62],
-      "eye_y": [0.12, 0.36],
-      "prompt": "预留：未来版本再定义",
-      "forbid": "当前不执行"
+      "eye_y": [0.24, 0.38],
+      "eye_tilt_max": 0.07,
+      "eye_balance_max": 0.08,
+      "calibration": "verify/raw 8 张正脸样本 eye_center_y 0.303–0.316，取 0.24–0.38；不套用侧脸 0.32–0.46",
+      "prompt": "正脸，双眼可见且水平对称，鼻梁居中，左右脸颊/耳饰基本对称；肩线完整入镜",
+      "forbid": "不要画成侧脸或四分之三脸；不要遮挡一只眼睛；不要加圆形画框或装饰圈"
     },
     {
       "id": "three_quarter_left",

@@ -37,11 +37,19 @@
   "jpg": false,
   "count": 2,
   "view": "profile",
+  "face_mode": "faced",
   "gender": "male",
   "gender_source": "card",
   "angle": "profile_left",
   "angle_source": "default",
   "budget": 10,
+  "generation": {
+    "backend": "trae-generateimage",
+    "mode": "text2img",
+    "reference_images": [],
+    "strength": null,
+    "fallback": "fail"
+  },
   "constraints": "不要文字、不要多人、不要明显多指",
   "confirm": {
     "confirmed": true,
@@ -65,11 +73,13 @@
 | `jpg` | 否 | 是否导出压缩版 |
 | `count` | 否 | 首轮张数，默认 **2**，上限为预算；超预算会被截到预算并记 `count_capped` |
 | `view` | 否 | 当前固定 `profile`；其它视角为预留，不执行 |
+| `face_mode` | 否 | `faced` / `faceless`；缺省读角色卡 `face_mode`，再缺省 `faced`。无脸/皮套角色必须写 `faceless` |
 | `gender` | 否 | `male` / `female` / `unspecified`；缺失时按 `unspecified` 处理 |
 | `gender_source` | 否 | `user` / `card` / `unspecified`，由流水线补全 |
-| `angle` | 否 | `profile_left` / `profile_right`；缺失时按性别取默认（男左、女右、未指定左） |
+| `angle` | 否 | `profile_left` / `profile_right` / `front`；缺失时按性别取默认（男左、女右、未指定左） |
 | `angle_source` | 否 | `default` / `user`；用户手动指定即为 `user` |
 | `budget` | 否 | 本单生成预算，默认 10；与 `--budget` 取更小值 |
+| `generation` | 否 | 生成后端与参考图参数块，见 3.1；缺省按 `text2img` + `fallback=fail` |
 | `constraints` | 否 | 追加的负面约束，编译进 prompt 的禁止项描述 |
 | `confirm` | 是（执行前） | 显式确认块；`confirmed` 必须为 `true`，否则流水线拒绝执行 |
 
@@ -176,9 +186,9 @@ py -3 scripts/confirm_order.py --brief "<订单目录>\brief.json" --check
 
 | 层 | 路径 | 作用 |
 |-|-|-|
-| 风格档案 | `references/styles/<style-id>.json` | 画风锚点与粗指标门槛；当前 `tv-anime-cel` |
-| 角色卡 | `references/characters/<character-id>.json` | 可文字化的外形特征与人工核对清单；当前 `satoshi` |
-| 角度矩阵 | `references/angles.json` | 角度定义、提示词表述、可见眼数约束；当前朝左/朝右均启用 |
+| 风格档案 | `references/styles/<style-id>.json` | 画风锚点与粗指标门槛；当前 `tv-anime-cel`（赛璐璐）、`realistic-armor`（写实/皮套） |
+| 角色卡 | `references/characters/<character-id>.json` | 可文字化的外形特征与人工核对清单；当前 `satoshi`、`fox-armor`（无脸皮套） |
+| 角度矩阵 | `references/angles.json` | 角度定义、提示词表述、可见眼数约束；`profile_left` / `profile_right` / `front` 启用 |
 
 **风格档案固定字段**：
 
@@ -192,13 +202,15 @@ py -3 scripts/confirm_order.py --brief "<订单目录>\brief.json" --check
 | `background.mode` / `background.allowed` | 背景处理：平涂 / 留白 / 暗调 |
 | `canvas` | 方形、满出血、无边框/圆形遮罩，以及固定英文画布条款 |
 | `prompt_anchor` | 编译时置顶的风格句 |
-| `gate` | 风格粗指标门槛 |
+| `gate` | 风格粗指标门槛；`gate.applicable=false` 表示该维度显式不适用 |
+| `gate.note` | 不适用/校准说明；声明不适用时闸门记 `null` + 原因，绝不当作通过 |
 | `prompt_forbidden` | 与画风冲突、必须避免的质感词 |
 
 **角色卡固定字段**：
 
 | 字段 | 内容 |
 |-|-|
+| `face_mode` | `faced` / `faceless`；决定定位锚点、指标集与角度判据 |
 | `gender` | `male` / `female` / `unspecified`；决定默认朝向（男左、女右、未指定默认左） |
 | `hair.direction` / `hair.tufts` | 发型走向、发绺数量与形态 |
 | `headwear.type` / `headwear.logo` | 帽型、徽标 |
@@ -207,6 +219,9 @@ py -3 scripts/confirm_order.py --brief "<订单目录>\brief.json" --check
 | `signature` | 标志性细节（如脸颊纹） |
 | `prompt_block` | 编译时置中的角色特征块 |
 | `checklist` | 人工逐项核对清单，`required` 项缺一不放行 |
+
+无脸/皮套角色的 `checklist` 换成轮廓类必填项：耳鳍/头盔形状、面罩、装甲配色、
+胸口或肩部标识等；不得沿用「眼睛/眉毛/脸颊纹」这类只对有人脸成立的项目。
 
 ### 2.6 编译顺序（不可换）
 
@@ -233,7 +248,16 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 |-|-|-|-|-|-|
 | `profile_left` | 启用 | 1 | 单眼中心 ≤0.42 头宽 | 左 | 0.32–0.46 |
 | `profile_right` | 启用 | 1 | 单眼中心 ≥0.58 头宽 | 右 | 0.32–0.46 |
-| `frontal` / 3/4 / 仰俯 | `reserved`，暂不产出 | — | — | — | — |
+| `front` | 启用 | 2 | 双眼粗糙位置 0.38–0.62 | — | **0.24–0.38**（不套用侧脸 0.32–0.46） |
+| 3/4 / 仰俯 | `reserved`，命中即 `angle_mismatch` | — | — | — | — |
+
+正脸还要同时满足：双眼都检出、眼线倾斜 ≤0.07、双眼水平平衡 ≤0.08。正脸区间用
+`ai-anime-avatar/verify/raw` 的 5 张正样本校准（实测 eye_center_y 0.303–0.316），
+不从侧脸区间外推；3/4 脸常也能检出双眼，但眼位/倾斜对不上，仍按 `reserved` 拒。
+
+**无脸/皮套（`face_mode=faceless`）**：不用眼部锚点，角度改用面罩/高光横向偏移
+（朝左 ≤−0.08、朝右 ≥+0.08、正面 |偏移| ≤0.06+0.02）与头盔左右轮廓对称性；
+信号缺失或冲突 → `angle_undetermined`，不猜。
 
 **默认朝向规则（可覆盖）**：
 
@@ -244,17 +268,24 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | `gender=unspecified` / 缺失 | `profile_left` | 确认页必须提示「未指定性别，已按朝左」；不从参考图推断 |
 | 用户手动指定朝左/朝右 | 用户指定 | 覆盖性别默认，记 `angle_source=user` |
 
-角度判定回答「朝左 / 朝右 / 判不出」，不做正脸/3-4 分支：
+角度判定回答「朝左 / 朝右 / 正面 / 判不出」，3/4 与仰俯不实现：
 
 ```
-可见眼数 == 1
-且 朝左：瞳孔横向位置 ≤0.42 且 鼻尖侧向左
-   朝右：瞳孔横向位置 ≥0.58 且 鼻尖侧向右
-且 0.32 ≤ eye_center_y ≤ 0.46
+有人脸：
+  可见眼数 == 1
+  且 朝左：瞳孔横向位置 ≤0.42 且 鼻尖侧向左
+     朝右：瞳孔横向位置 ≥0.58 且 鼻尖侧向右
+  且 0.32 ≤ eye_center_y ≤ 0.46
+  可见眼数 == 2 → 正面：eye_y 0.24–0.38 + 眼线倾斜/双眼平衡达标
+无脸：
+  面罩/高光横向偏移与头盔轮廓左右对称性一致 → 朝左/朝右/正面
+  信号缺失或冲突 → angle_undetermined
 ```
 
 - **方向别写反**：实测朝左样本 `pupil_edge=0.178`、朝右样本 `0.789`；朝左时可见眼在头框
   左半部（鼻尖一侧），朝右在右半。`nose_side` 由头部框内肤色重心辅助判断，与瞳孔交叉校验。
+- **瞳孔极度偏一侧的例外**：`pupil_edge ≤0.12` 或 `≥0.88` 时方向已确定；若鼻尖侧
+  不可用（肤色重心落在中线、背景嘈杂）不把明确方向判成未定；鼻尖与瞳孔冲突时仍判未定。
 - **判不出方向时**（瞳孔或鼻尖侧缺失/冲突）→ `angle_undetermined`，FAIL 并暂停请人工确认；
   不用默认朝向顶替判定结果。
 - 方向明确但与期望不符 → `angle_mismatch`；未启用角度直接 FAIL，不返回 `null`。
@@ -285,6 +316,41 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 失败处理 | 文件缺失或打不开记为该次失败，不进入评分；已生成图与 `status.json` 必须保留 |
 
 不可复现：同一 prompt 两次结果不同，manifest 只记录 prompt 与时间，不记录 seed。
+
+### 3.1 参考图生成与后端能力（调用前必须检测）
+
+参考图**不是本 skill 的固有能力**，取决于宿主与后端。能力登记在
+`references/backends.json`，每个后端声明 `available`、`reference_images.supported`、
+`max`、`roles`、`strength_range`。当前宿主 `trae-generateimage` 实测只有
+`prompt` / `image_size` 两个入参，`supported=false`；换宿主或接入新后端必须重跑检测，
+不得沿用上一单结论。
+
+`brief.generation` 字段：
+
+| 字段 | 说明 |
+|-|-|
+| `backend` | 后端 id，必须在 `backends.json` 登记 |
+| `mode` | `reference`（要参考图）或 `text2img` |
+| `reference_images[]` | 每项 `{path, role}`，`role` 取后端声明的 `style`/`identity`/`outfit` |
+| `strength` | 参考图强度，必须在后端 `strength_range` 内 |
+| `fallback` | 不支持参考图时怎么办：默认 `fail`；只有用户显式同意才可 `text2img` |
+
+调用前检测（`avatar_pipeline.py` 在评分/导出前执行）：
+
+1. 后端未登记 / `available=false` → 退出码 **4**；
+2. `mode=reference` 或带参考图，但后端 `reference_images.supported=false`：
+   - `fallback=fail`（默认）→ 退出码 **4**，**不得静默退回文生图**；
+   - `fallback=text2img`（仅用户显式同意）→ 继续，但 manifest
+     `identity_unverified=true`，报告首屏显著警告「参考图未参与生成，不能据此认为身份一致」；
+3. 参考图数量超过 `max`、`strength` 越界 → 退出码 4；
+4. `mode=reference` 但没有可读参考图 → 退出码 4。
+
+参考图相似度指标 `reference_similarity`：
+
+- **风格相似度**可算：色板直方图交集 0.50 + 饱和度差 0.25 + 边缘密度差 0.25，
+  三项都是像素统计，只说明「同体系」，不是风格 embedding；
+- **身份相似度**无 embedding 模型时记 `null`，同时给 `manual_identity_checklist`
+  （发型/耳鳍、头盔面罩、装甲配色、胸口标识、身材比例），**不得用色板相似度冒充身份一致**。
 
 **低成本验证优先**：能用参考图或已有产物算出的结论（风格粗指标、角度判定、阈值校准），
 一律不出图。只有必须验证「生成端实际出图」时才动用预算，且先跑最小张数。
@@ -382,6 +448,12 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
 
 ### 4.1 脸框来源
 
+**无脸/皮套（`face_mode=faceless`）不走下列眼部/肤色锚点**，直接用非背景内容框
+（`content-head`）：平涂底四角取背景色 → flood fill 得内容框 → 取内容最高点与
+头宽最大行作为头部/头盔整体轮廓。`method=content-head`、`eyes=[]`、`profile=false`；
+内容框不可靠时不猜头部位置，记 `locate_failed`。裁切锚点为目标头宽占画面
+0.44 / 0.50 / 0.56 三档 + 全幅；头部占比目标 0.35、头宽目标 0.50、居中偏移 ≤0.10。
+
 1. **主路径（眼睛锚点）**：找高饱和色块（`sat ≥ 60`，`mx ≥ 70`，不贴画面边），
    两两配成双眼（水平间距 5%–42% 画面宽，高度差 ≤9% 画面高），
    在全分辨率上求虹膜质心。
@@ -474,6 +546,19 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
 | `conf` | ≥ 0.40 | 人脸定位可信度 |
 | `candidates` | = 1 | 多人/多脸判定 |
 
+**无脸/皮套（`face_mode=faceless`）不使用上表的面部类指标**，改用头部轮廓指标集：
+
+| 指标 | 门槛 | 说明 |
+|-|-|-|
+| `head_ratio`（头部框面积 ÷ 圆形安全区） | 0.18–0.62，目标 0.35 | 替代 `face_ratio` |
+| `head_width_ratio`（头宽 ÷ 画面宽） | 目标 0.50 | 裁切档位 0.44 / 0.50 / 0.56 |
+| `center_offset`（头部中心横向偏移） | ≤0.10 | 替代双眼对称/眼位 |
+| 内容留白 / 主体占比 / 顶部平切 | 见 4.3 | 与有人脸相同 |
+
+`eye_center_y`、双侧对称、面部占比在 faceless 下**不参与评分**（记 `null`），
+manifest 的 `metric_set` 标为 `head_contour`、`face_metrics_applied=false`；
+报告必须写明用的是头部轮廓指标，**不得用面部分数冒充**。
+
 全部指标都在**裁切后的 1024 图**上计算；构图类闸门（截断、留白、占比、平切）
 以最终成品为准，原图指标另存 `raw` 供对照。
 
@@ -540,7 +625,15 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `background` | 四角中位数估背景色，统计接近该色的像素占比与明度 stddev；占比 ≥20% 且 std ≤10 为 flat，≥10% 且 ≤18 为 simple，否则 busy | stddev ≤20 且模式为 flat/simple |
 
 - 门槛来自 `references/styles/<style-id>.json` 的 `gate`；未传 `--style` 时闸门为 `null`。
+- 不同画风用不同档案，不能互相套阈值：`tv-anime-cel` 的 `edge_density` 上下限、
+  高饱和主色数不适用于写实/皮套；写实皮套用 `realistic-armor`（色板 4–16、
+  饱和度 0.015–0.20、边缘密度 0.025–0.12、背景 stddev ≤12）。
+- `gate.applicable=false`（或无可用档案且角色无面部体系）时，该维度记
+  `{"passed": null, "reasons": ["style_not_applicable"]}` 并写明原因；
+  **null 不计为 PASS**，交付报告必须标「风格未验证」。
 - 任一项不过 → `style_mismatch:<指标>`，直接 REJECT（"明显不在同一体系"）。
+- 背景模式用「四角 patch 主色簇」估计（取与最多角一致的那一簇，打平优先上两角），
+  不把四角平均：上两角白底、下两角深色主体时平均会折成灰，平涂底被误判 busy。
 - **能力边界**：这是粗指标，不是风格 embedding。它能拦「无平涂主色/饱和度异常/没有线稿边缘/
   背景嘈杂」的明显异体系，不能证明画风精细一致；最终仍需人眼对比参考图。
 
@@ -563,24 +656,27 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 - 人工核对必须看 800px 放大图，同时查「鼻梁后方有没有第二只眼」；清单不能只凭缩略图勾选。
 - 侧脸只查**可见侧**脸颊纹；远侧脸颊不可见，不因「另一侧没有」判缺失。
 
-### 5.7 角度判定（当前仅侧脸朝左）
-
-### 5.7 角度判定（双向侧脸）
+### 5.7 角度判定（侧脸双向 + 正脸启用 + 无脸）
 
 | 项 | 规则 |
 |-|-|
-| 可见眼数 | 必须 = 1（检出 2 只眼即不是侧脸） |
+| 可见眼数 | 侧脸必须 = 1；正脸必须 = 2（且双眼都检出） |
 | 瞳孔位置 | 朝左：≤0.42；朝右：≥0.58（单眼中心相对头框横向占比）；位置缺失不算通过 |
-| 鼻尖侧 | 肤色重心 ≤0.44 判左、≥0.56 判右；与瞳孔位置冲突或缺失时判方向未定 |
-| 朝向 | `facing` 必须等于期望方向的 `yaw`；方向未判定按 `angle_undetermined` 处理 |
-| 眼位 | 0.32 ≤ `eye_center_y` ≤ 0.46 |
+| 鼻尖侧 | 肤色重心 ≤0.44 判左、≥0.56 判右；与瞳孔位置冲突时判方向未定 |
+| 朝向 | `facing` 必须等于期望角度的 `yaw`；方向未判定按 `angle_undetermined` 处理 |
+| 眼位（侧脸） | 0.32 ≤ `eye_center_y` ≤ 0.46 |
+| 眼位（正脸） | 0.24 ≤ `eye_center_y` ≤ 0.38（用正样本校准，不套侧脸区间） |
+| 正脸对称 | 眼线倾斜 ≤0.07、双眼水平平衡 ≤0.08 |
+| 无脸 | 面罩/高光偏移：朝左 ≤−0.08、朝右 ≥+0.08、正面 \|偏移\| ≤0.06；头盔轮廓对称性交叉校验 |
 | 结论 | 全过 → 角度闸门 PASS；方向明确但方向/位置不符 → `angle_mismatch`；方向判不出 → `angle_undetermined` |
 
 - **方向定义**：朝左 = 鼻尖在左、耳朵在右、可见眼在头框左半；
   朝右 = 鼻尖在右、耳朵在左、可见眼在头框右半。
   实测朝左样本 `pupil_edge=0.178`、朝右样本 `0.789`，不要把左右写反。
-- 角度 id 必须来自 `references/angles.json` 且 `enabled=true`；`reserved` 项传进来直接
-  `angle_mismatch`，不再返回 `null`。
+- **瞳孔极度偏一侧的例外**：`pupil_edge ≤0.12` 或 `≥0.88` 时方向已确定；若鼻尖侧
+  不可用（肤色重心落在中线、背景嘈杂）不把明确方向判成未定；鼻尖与瞳孔冲突时仍判未定。
+- 角度 id 必须来自 `references/angles.json` 且 `enabled=true`；`reserved` 项（3/4、仰俯）
+  命中即 `angle_mismatch`，不再返回 `null`。
 - `angle_undetermined` 表示「机器判不出方向」：暂停并请人工确认，不拿性别默认值顶替。
 - 已知误判：远眼未被检出的 3/4 脸会被当成侧脸。人工 800px 复查仍不可省。
 - 角度判定不进入总分，只作为闸门；总分仍为 `face_quality 40 + composition 60`。
@@ -589,11 +685,15 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 
 在裁切后的主图上做像素启发式，区分「贴边但完整」与「被画面切掉」：
 
-1. 四角中位色估背景，曼哈顿距离 >50 的像素记为主体；若背景估不出，跳过本闸门。
-2. 沿四条边分别统计主体像素的连续段：
+1. 四角 patch 主色簇估背景（取与最多角一致的一簇，打平优先上两角），
+   曼哈顿距离 >50 的像素记为主体；若背景估不出，跳过本闸门。
+2. **只在平涂背景可判定时生效**：内容分析 `reliable=true`（四角平涂且背景占比足够）
+   才采信截断结论；写实场景/渐变/模糊背景的边圈不全是背景，贴边段会被误当主体
+   （实测 adam 背景非平涂时左/右误判），此时记 `null`、不判死，也不拿它当证据。
+3. 沿四条边分别统计主体像素的连续段：
    - `contact`：该边主体像素占比；
    - `max_run`：最长连续段占边长比例。
-3. 只有 `max_run ≥ 0.10` **且** 向内 6% 处同一跨度仍有 ≥55% 为主体，才判该边截断。
+4. 只有 `max_run ≥ 0.10` **且** 向内 6% 处同一跨度仍有 ≥55% 为主体，才判该边截断。
    发丝尖、细装饰线这类窄接触不算截断。
 
 | 边 | 处理 |
@@ -642,6 +742,8 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `composition_bad:head_cut` | 头顶被裁平（内容最高行连续段过宽） | 弃用；原图已丢像素，不能靠再裁还原 |
 | `composition_bad:whitespace` | 成品上下留白越界 | 重裁或弃用；勿交付大留白小主体 |
 | `composition_bad:subject_share` | 主体占画面比例越界 | 重裁或弃用 |
+| `composition_bad:head_ratio` | 无脸模式头部轮廓占比越界 | 重裁或弃用（faced 不出现） |
+| `composition_bad:centering` | 无脸模式头部居中偏移越界 | 重裁或弃用（faced 不出现） |
 | `canvas_bad:square` | 画布不是 1:1 | 检查裁切/导出链路 |
 | `canvas_bad:frame` | 画面有边框或装饰圈 | 弃用；重出时加无边框条款 |
 | `thumb_unreadable` | 缩图不可读 | 弃用；缩小后糊成一团 |
@@ -649,9 +751,13 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `duplicate` | 重复图 | 保留高分那张 |
 | `open_failed` | 文件打不开 | 该次调用记为失败 |
 | `style_mismatch:<指标>` | 风格粗指标越界 | 弃用；换风格措辞重出，别用「精致/8K」压 |
+| `style_unverified` | 无风格档案或维度声明不适用，风格未验证 | **不计为通过**；补做人工风格核对后再交付 |
+| `style_not_applicable` | 风格档案显式声明该维度不适用（记 null） | null 不是 PASS；报告标注「不适用 + 原因」 |
+| `reference_unsupported` | 当前后端不暴露参考图入参（含后端不可用） | 退出码 4；未获用户同意不得退回文生图 |
+| `reference_style_low` | 成品与参考图风格相似度过低 | 弃用或重出；身份相似度仍需人工清单 |
 | `character_missing:<项>` | 人工清单必填项未通过 | 弃用；按下表补做或重出 |
-| `angle_mismatch` | 方向明确但不是目标侧脸角度 | 弃用；先查鼻梁后方第二只眼 |
-| `angle_undetermined` | 机器判不出朝向（瞳孔/鼻尖侧缺失或冲突） | 暂停，人工确认朝向；不要用默认值顶替 |
+| `angle_mismatch` | 方向明确但不是目标角度（含命中 3/4 等 reserved 项） | 弃用；先查鼻梁后方第二只眼 |
+| `angle_undetermined` | 机器判不出朝向（瞳孔/鼻尖侧/面罩信号缺失或冲突） | 暂停，人工确认朝向；不要用默认值顶替 |
 | `confirm_required` | brief 缺少 `confirm.confirmed=true` | 不生成、不评分；先走确认门写 confirm 块 |
 
 ---
@@ -771,6 +877,9 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `meta.upscale` | `{method, available, detail_added, note}` |
 | `meta.budget` | `{limit, used, remaining, exceeded, source}`；`used` = `raw/` 实际张数 |
 | `meta.style_profile` / `meta.character` / `meta.angle_matrix` | 本次使用的档案 id 与路径 |
+| `meta.face_mode` | `faced` / `faceless`；决定指标集与角度判据 |
+| `meta.generation` | `{backend, reference_input_supported, mode, fallback, strength, identity_unverified}` |
+| `meta.reference_images` | 实际参与/声明参与的参考图 `[{path, role, exists}]` |
 | `meta.checklist` | 人工核对清单是否提供 |
 | `meta.order` | `{confirmed, confirmation_source, gender, gender_source, angle, angle_source, needs_gender_confirmation, count, count_capped}` |
 | `brief` | 需求单原文（含 `confirm` 块） |
@@ -788,14 +897,18 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `id` / `file` | 图标识与原文件名 |
 | `verdict` | `PASS` / `REJECT` / `ERROR` |
 | `total` | 归一化总分 |
-| `metrics` | `face_ratio / eye_center_y / edge_margin / cut_edges / edge_contact / sharpness / crop_cost / eye_tilt / blown` |
+| `face_mode` / `metric_set` / `face_metrics_applied` | 本张用的模式与指标集；faceless 为 `faceless` / `head_contour` / `false` |
+| `metrics` | `face_ratio / eye_center_y / edge_margin / cut_edges / edge_contact / sharpness / crop_cost / eye_tilt / blown`；faceless 另记 `head_ratio / head_width_ratio / center_offset`，面部项为 `null` |
 | `scores` | `face_quality`（含 `face_quality_parts`）、`composition`、style/emotion/anatomy 为 `null` |
-| `gates` | 各闸门布尔值；不可用能力为 `null`；含 `style` / `character` / `angle` / `canvas` |
+| `gates` | 各闸门布尔值；不可用能力为 `null`；含 `style` / `character` / `angle` / `canvas` / `content` / `content_input` |
+| `raw` | 原图侧记录：`content`（内容分析）、`content_gate`（原图内容闸门） |
+| `final_gate` | 成品侧重跑：`{gate_scope:"final_crop", gate, content}`；闸门判定以它为准 |
 | `style` | `{palette_colors, palette_top, saturation, edge_density, background_stddev, background_mode}` |
 | `style_check` | `{style_id, passed, checks, reasons}`；未传风格档案为 `null` |
 | `canvas` | `{width, height, aspect, square, frame_like, frame_bbox}` |
 | `canvas_check` | `{passed, checks{square,no_frame}, reasons}` |
-| `angle_check` | `{expected, enabled, detected{visible_eyes,pupil_edge,skin_centroid,nose_side,facing,is_profile}, passed, checks, reason, direction_known}`；`reason` 为 `angle_mismatch` / `angle_undetermined` |
+| `angle_check` | `{expected, enabled, metric_set, detected{visible_eyes,pupil_edge,skin_centroid,nose_side,facing,is_profile,visor_offset,contour_asym}, passed, checks, reason, direction_known}`；`reason` 为 `angle_mismatch` / `angle_undetermined`；faceless 时 `visible_eyes=null`、`metric_set=head_contour` |
+| `reference_similarity` | `{style_similarity, identity_similarity, manual_identity_checklist[], per_reference[]}`；无 embedding 时 `identity_similarity=null` |
 | `character_check` | `{character_id, passed, items[], missing[], reasons[]}`；未传清单为 `null` |
 | `thumb` | 96px 可读性分数与分量 |
 | `reasons` | 原因码数组 |
@@ -812,14 +925,18 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 |-|-|-|
 | 生成（1920 方形） | 可用 | Agent 侧 `GenerateImage` |
 | 人脸定位（眼睛锚点 + 皮肤回退 + 侧脸单眼/无眼白头部） | 可用 | 纯 Pillow 启发式；侧脸走眼白 + 头部轮廓，浅色皮肤无眼白时用头部比例估眼线 |
-| 裁切补偿 | 可用 | 三档目标占比 + 全幅候选 |
+| 无脸/皮套定位（内容框头部轮廓） | 可用（平涂底） | `content-head`；非平涂底不可靠时记 `locate_failed`，不猜 |
+| 裁切补偿 | 可用 | 三档目标占比 + 全幅候选；faceless 用头宽 0.44/0.50/0.56 + 全幅 |
 | 锐度 / 缩图可读性 / 去重 | 可用 | Pillow + 均值哈希 |
-| 风格粗指标 | 可用（粗筛） | 主色数/饱和度/边缘密度/背景平涂度；不是 embedding |
-| 角色特征核对 | 可用（人工） | 清单勾选，缺必填项不放行 |
-| 角度判定 | 可用（仅朝左侧脸） | 单眼 + 瞳孔在左半 + 鼻尖侧向左 + 眼位；朝右/正脸/3-4 未启用 |
-| 截断判定 | 可用（像素启发式） | 贴边连续段宽度 + 向内延续；不追求语义分割 |
+| 风格粗指标 | 可用（粗筛） | 主色数/饱和度/边缘密度/背景平涂度；不是 embedding；赛璐璐与写实各用各的档案 |
+| 角色特征核对 | 可用（人工） | 清单勾选，缺必填项不放行；无脸角色用轮廓类清单 |
+| 角度判定 | 可用（侧脸双向 + 正脸；无脸走面罩/轮廓） | 正脸：双眼 + eye_y 0.24–0.38 + 倾斜/平衡；3/4、仰俯仍 reserved |
+| 截断判定 | 可用（仅平涂底） | 贴边连续段 + 向内延续；非平涂底（写实/渐变/模糊背景）记 `null`，不判死 |
 | 方画布 / 边框粗检 | 可用（粗筛） | 宽高比 + 径向暗环 + 大跨度低填充深色连通域；细小/内嵌圆环需人工确认 |
 | PNG / JPG 导出 | 可用 | 含 2K/4K 插值放大 |
+| 参考图入参（当前宿主） | **不可用** | `trae-generateimage` 只有 `prompt`/`image_size`；`backends.json` 登记为 `supported=false`，默认 `fallback=fail` 退出 4 |
+| 参考图风格相似度 | 可用（像素统计） | 色板直方图/饱和度/边缘密度；只说明同体系 |
+| 身份相似度（embedding） | 不可用 | 记 `null` + 人工清单，不拿色板冒充身份 |
 | 动漫超分（Real-ESRGAN 等） | 不可用 / 需额外依赖 | 无 numpy/torch，pip 无网络 |
 | OCR 文字检测 | 不可用 | 闸门 `null` |
 | NSFW 检测 | 不可用 | 闸门 `null` |

@@ -1,0 +1,44 @@
+{
+  "schema": "character-card/1.2",
+  "character_id": "fox-armor",
+  "display_name": "极狐（无脸皮套装甲）",
+  "style_id": "realistic-armor",
+  "gender": "unspecified",
+  "version": "1.0.0",
+  "face_mode": "faceless",
+  "source": {
+    "type": "existing-outputs",
+    "note": "依据极狐订单 6 张成品与参考图提取；全脸被头盔/面罩遮挡，按无脸类型登记，不包含剧情与设定"
+  },
+  "face": {
+    "mode": "faceless",
+    "note": "不检眼部、不加眼部锚点；头部整体就是头盔/面罩轮廓。评分改用头部轮廓占比 + 上下留白 + 居中偏移。"
+  },
+  "helmet": {
+    "shape": "全覆式头盔，顶部圆钝、后脑略收；两侧有外扩的耳鳍/狐耳结构",
+    "visor": "深色横向面罩，内部有一条高饱和灯带；灯带位置是最强的朝向信号",
+    "ear_fins": "左右各一片外扩耳鳍，尖端朝上并略向外；耳鳍不能被画布上沿切平",
+    "note": "耳鳍/头盔顶是全图最高点，裁切必须保留 6% 安全边距"
+  },
+  "outfit": {
+    "palette": ["#f2f3f5 白色装甲", "#7c828c 灰色分件", "#2b2f36 深色内衬", "#b8342f 红色标识"],
+    "chest": "胸口中央有一块深色圆形/盾形标识，边缘有红色点缀",
+    "shoulders": "肩甲分件明显，肩线完整入镜；胸像允许肩甲被底部裁切",
+    "note": "头像只露肩线以上，重点保证头盔轮廓 + 胸口标识 + 装甲配色"
+  },
+  "signature": {
+    "ear_fins": "两侧外扩耳鳍是最强识别点",
+    "visor_light": "面罩灯带的横向位置与长度",
+    "chest_emblem": "胸口深色徽记 + 红色点缀"
+  },
+  "prompt_block": "全覆式装甲头盔，顶部圆钝、两侧外扩狐耳状耳鳍；深色横向面罩内嵌一条高饱和灯带；白色主装甲配灰色分件与深色内衬，胸口中央深色徽记带红色点缀；肩甲分件清晰，肩线完整入镜；无脸部皮肤、无可见眼睛",
+  "checklist": [
+    {"key": "ear_fins_shape", "label": "两侧外扩耳鳍形状与朝向正确，未被裁平", "required": true},
+    {"key": "helmet_outline", "label": "头盔整体轮廓（顶部圆钝、后脑收口）", "required": true},
+    {"key": "visor_band", "label": "深色面罩 + 高饱和灯带，位置贴合", "required": true},
+    {"key": "armor_palette", "label": "白/灰/深色装甲配色分区正确", "required": true},
+    {"key": "chest_emblem", "label": "胸口中央徽记 + 红色点缀", "required": true},
+    {"key": "shoulder_pads", "label": "肩甲分件清晰，肩线完整", "required": true},
+    {"key": "no_visible_face", "label": "无可见皮肤/眼睛，不得露出人脸", "required": true}
+  ]
+}
