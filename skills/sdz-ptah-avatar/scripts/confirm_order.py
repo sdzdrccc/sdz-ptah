@@ -70,7 +70,13 @@ def main():
         brief["angle"] = args.angle
         brief["angle_source"] = "user"
 
-    norm, errors = ap.normalize_brief(brief, None, args.budget)
+    budget = args.budget
+    if brief.get("budget") is not None:
+        try:
+            budget = min(int(brief["budget"]), budget)
+        except (TypeError, ValueError):
+            pass
+    norm, errors = ap.normalize_brief(brief, None, budget)
     if errors:
         print("brief invalid: " + "; ".join(errors))
         return 2
