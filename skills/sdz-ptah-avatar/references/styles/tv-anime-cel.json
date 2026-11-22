@@ -2,14 +2,14 @@
   "schema": "style-profile/1.0",
   "style_id": "tv-anime-cel",
   "display_name": "TV 动画赛璐璐",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "status": "active",
   "source": {
     "type": "reference-images",
-    "note": "依据 12 格 TV 动画截图（小智）提取；参考图仅本地留存，路径 ai-anime-avatar/基准/风格参考/，不入公开仓库",
-    "reference_count": 2
+    "note": "依据 12 格 TV 动画截图（小智）+ 1996 TV 单帧对照样本提取；参考图仅本地留存，路径 ai-anime-avatar/基准/风格参考/，不入公开仓库",
+    "reference_count": 3
   },
-  "prompt_anchor": "1990 年代日本 TV 动画赛璐璐风格，干净细线稿，平涂上色，硬边双层阴影，无渐变、无厚涂、无 3D 渲染；肤色暖调，主色明快但不过饱和，画面保持平面感",
+  "prompt_anchor": "1990 年代日本 TV 动画赛璐璐风格：flat cel shading，hard-edged two-tone shadow（硬边双色阶阴影），2-3px dark-brown outline（2 到 3 像素深棕描边，不是纯黑粗线），no gradient、no airbrush、no glossy highlight，muted 90s TV palette（低彩度年代色板），reduced internal detail（减少发丝与布料细碎细节），slightly darker exposure（整体曝光略压暗，暗部沉而不死黑），subtle film grain（轻微胶片颗粒），平涂上色、平面感优先，无厚涂、无 3D 渲染",
   "line": {
     "weight_px_at_1024": [2, 3],
     "color": "#2b211d",
@@ -20,7 +20,7 @@
     "layers": 2,
     "gradient": false,
     "note": "底色 + 一层硬边暗部；头发、衣服各 2 个色阶；高光只用小块纯色，不做喷枪渐变",
-    "highlight": "眼睛一点白色高光 + 头发一条浅色高光带"
+    "highlight": "只保留眼睛一点白色小高光；不画头发/衣物/帽子的镜面高光带，不做写实反光"
   },
   "palette": {
     "saturation_tendency": "中高饱和，肤色暖、红蓝主色明确，背景降饱和",
@@ -51,7 +51,8 @@
     "note": "画布与导出一律方形；禁止圆形徽章/画框/装饰圈；背景铺满四边，不靠留白制造边框"
   },
   "prompt_forbidden": [
-    "3D 渲染", "写实皮肤", "厚涂油画", "赛博霓虹", "大面积渐变光效", "复杂场景背景"
+    "3D 渲染", "写实皮肤", "厚涂油画", "赛博霓虹", "大面积渐变光效", "复杂场景背景",
+    "镜面高光", "写实反光", "喷枪渐变", "发丝细碎细节", "纯黑粗描边"
   ],
   "gate": {
     "palette_colors": [5, 13],
@@ -83,7 +84,37 @@
         "background_share": [0.485, 0.606],
         "background_stddev": [2.1, 5.2],
         "background_mode": "flat"
+      },
+      "sample_2026_11_22": {
+        "method": "现有图离线计算（Pillow），未出新图；原版截图为 1996 TV 单帧",
+        "generated_profile_left_v1_r2": {
+          "palette_colors": 10,
+          "saturation": 0.280,
+          "value_p50": 0.824,
+          "value_p90": 0.867,
+          "edge_density": 0.056,
+          "hard_soft_ratio": 1.71,
+          "near_white_share": 0.066,
+          "background_mode": "flat"
+        },
+        "reference_1996tv_profile": {
+          "palette_colors": [9, 12],
+          "saturation": [0.425, 0.467],
+          "value_p50": [0.678, 0.718],
+          "value_p90": [0.792, 0.827],
+          "edge_density": [0.011, 0.030],
+          "hard_soft_ratio": [0.24, 0.25],
+          "near_white_share": 0.0,
+          "background_mode": "busy（体育场绘景，不参与交付背景门槛）"
+        }
       }
+    },
+    "attribution_2026_11_22": {
+      "conclusion": "主要卡在②提示词层 + ③生成端上限；①档案层主色数/线宽/阴影层数基本贴住，不改档案阈值",
+      "layer_1_profile": "无责：主色数 8–10 vs 9–12，线宽 2–3px、阴影 2 层一致",
+      "layer_2_prompt": "可改：已压实 flat cel shading / hard-edged two-tone / 2-3px dark-brown outline / no gradient / no glossy highlight / muted 90s palette / reduced internal detail / slightly darker exposure / film grain；高光收敛为仅眼睛小高光",
+      "layer_3_backend": "不可改：无参考图/LoRA/负向词，当前宿主只能近似 90 年代 TV 帧质感；要真正对上需参考图或 LoRA 级控制",
+      "not_done": "未为了让现有图过闸而调整 gate 阈值；未把导出后调色当作画风方案"
     }
   }
 }
