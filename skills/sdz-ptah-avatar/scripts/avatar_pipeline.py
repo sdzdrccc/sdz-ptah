@@ -20,15 +20,17 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
 # 白发/白衣服/浅背景的 Cr-Cb 为负，可据此分开。
+# 小麦色/暖色皮肤 Cb 会低到 90 左右，旧下限 110 会把整张脸判成非皮肤，
+# 使单眼侧脸彻底失去回退定位；下限放到 85，白色（Cb≈Cr）仍被 DELTA 挡住。
 SKIN_CR = (126, 170)
-SKIN_CB = (110, 146)
+SKIN_CB = (85, 146)
 SKIN_DELTA = 2          # Cr - Cb 下限
-SKIN_Y_MIN = 110
+SKIN_Y_MIN = 100
 
 # 眼睛：虹膜是高饱和色块，用「高饱和连通块配对」做锚点
 SAT_MIN = 60            # 虹膜饱和度高（实测 73~108），背景渐变/手部约 45~52
@@ -46,6 +48,10 @@ CHIN_BUILD = 0.06
 
 FACE_RATIO_MIN, FACE_RATIO_MAX = 0.45, 0.78
 EYE_MIN, EYE_MAX = 0.12, 0.36
+# 侧脸单眼走「头部包围盒」定位，箱体含头发/帽子，眼位天然比正脸低；
+# 实测交付图眼位 0.43~0.46，故单列一套更宽的闸门，不放宽正脸闸门。
+PROFILE_EYE_MIN, PROFILE_EYE_MAX = 0.28, 0.50
+PROFILE_EYE_TARGET = 0.44
 CONF_MIN = 0.40
 THUMB_MIN = 0.35
 BLUR_MIN = 8.0                       # 面部锐度下限（LOG 前的原始 stddev）
@@ -178,6 +184,214 @@ def _skin_fallback(img):
             "candidates": 1, "method": "skin-fallback", "eye_source": "estimated"}
 
 
+def _sclera_eye(img, skin_box):
+    """单眼侧脸：在肤色框上部找「白色眼白 + 深色瞳孔」块，返回眼中心。"""
+    W, H = img.size
+    work_w = 480
+    w = min(work_w, W)
+    h = int(round(H * w / float(W)))
+    small = img.convert("RGB").resize((w, h), Image.BILINEAR)
+    px = small.load()
+    cell = 4
+    cw, ch = w // cell, h // cell
+    sx = w / float(W)
+    bx0, by0, bx1, by1 = [v * sx for v in skin_box]
+    bw_box, bh_box = max(1.0, bx1 - bx0), max(1.0, by1 - by0)
+
+    marked = [[False] * cw for _ in range(ch)]
+    for gy in range(ch):
+        for gx in range(cw):
+            hit = tot = 0
+            for y in range(gy * cell, (gy + 1) * cell):
+                for x in range(gx * cell, (gx + 1) * cell):
+                    r, g, b = px[x, y]
+                    tot += 1
+                    if min(r, g, b) >= 185 and max(r, g, b) - min(r, g, b) <= 28:
+                        hit += 1
+            if tot and hit / float(tot) >= 0.5:
+                marked[gy][gx] = True
+
+    best = None
+    for cells in _grid_components(marked, cw, ch):
+        if not (6 <= len(cells) <= 0.02 * cw * ch):
+            continue
+        xs = [c[0] for c in cells]
+        ys = [c[1] for c in cells]
+        x0, x1 = min(xs) * cell, (max(xs) + 1) * cell
+        y0, y1 = min(ys) * cell, (max(ys) + 1) * cell
+        bw, bh = float(x1 - x0), float(y1 - y0)
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        if not (0.55 <= bw / max(1.0, bh) <= 2.6):
+            continue
+        if not (bx0 + 0.03 * bw_box <= cx <= bx1 - 0.03 * bw_box):
+            continue
+        # 眼白在肤色框上部；再往下多半是牙齿或衣领
+        rel_y = (cy - by0) / bh_box
+        if not (0.0 <= rel_y <= 0.40):
+            continue
+        if not (0.03 * bw_box <= bw <= 0.30 * bw_box):
+            continue
+        # 眼白周围必须有深色瞳孔/描线，排除高光与白帽檐
+        ex0, ey0 = int(max(0, x0 - bw * 0.3)), int(max(0, y0 - bh * 0.3))
+        ex1, ey1 = int(min(w, x1 + bw * 0.3)), int(min(h, y1 + bh * 0.3))
+        dark = tot = 0
+        dark_x = dark_y = 0.0
+        for yy in range(ey0, ey1):
+            for xx in range(ex0, ex1):
+                r, g, b = px[xx, yy]
+                tot += 1
+                if 0.299 * r + 0.587 * g + 0.114 * b < 95:
+                    dark += 1
+                    dark_x += xx
+                    dark_y += yy
+        if tot and dark / float(tot) < 0.05:
+            continue
+        if best is None or len(cells) > best["area"]:
+            # 眼白框中心会被下眼睑高光拉低；有足够深色像素时用瞳孔/描线重心
+            if dark >= 30:
+                pcx, pcy = dark_x / dark, dark_y / dark
+            else:
+                pcx, pcy = cx, cy
+            best = {"area": len(cells), "cx": pcx / sx, "cy": pcy / sx,
+                    "w": bw / sx, "h": bh / sx}
+
+    if not best:
+        return None
+    return {"center": (round(best["cx"], 1), round(best["cy"], 1)),
+            "size": (round(best["w"], 1), round(best["h"], 1)),
+            "area": best["area"]}
+
+
+def _profile_geometry(img, cells, scale, eye):
+    """由单眼 + 肤色轮廓 + 非背景内容，求头部包围盒与下巴线。"""
+    W, H = img.size
+    xs = [c[0] for c in cells]
+    ys = [c[1] for c in cells]
+    skin_box = (min(xs) * 4 * scale, min(ys) * 4 * scale,
+                (max(xs) + 1) * 4 * scale, (max(ys) + 1) * 4 * scale)
+    skin_h = max(1.0, skin_box[3] - skin_box[1])
+
+    work_w = 240
+    w = min(work_w, W)
+    h = int(round(H * w / float(W)))
+    small = img.convert("RGB").resize((w, h), Image.BILINEAR)
+    px = small.load()
+    corners = [(3, 3), (w - 4, 3), (3, h - 4), (w - 4, h - 4)]
+    bg = [sum(px[x, y][i] for x, y in corners) / 4.0 for i in range(3)]
+    mask = [[False] * w for _ in range(h)]
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            d = ((r - bg[0]) ** 2 + (g - bg[1]) ** 2 + (b - bg[2]) ** 2) ** 0.5
+            if d > 42:
+                mask[y][x] = True
+
+    sx = W / float(w)
+    ex = int(clamp(eye[0] / sx, 0, w - 1))
+    # 眼睛本身是白色，扫描行落在眼白上会与背景连成一片；
+    # 下移 10% 肤色高度到脸颊取头宽。
+    probe = int(clamp((eye[1] + 0.10 * skin_h) / sx, 0, h - 1))
+
+    def run_at(y):
+        if y < 0 or y >= h or not mask[y][ex]:
+            return None
+        lo = ex
+        while lo - 1 >= 0 and mask[y][lo - 1]:
+            lo -= 1
+        hi = ex
+        while hi + 1 < w and mask[y][hi + 1]:
+            hi += 1
+        return lo, hi
+
+    best_run = None
+    for dy in (0, 2, 4, 6, 8, 10, -2, -4):
+        r = run_at(probe + dy)
+        if r and (best_run is None or (r[1] - r[0]) > (best_run[1] - best_run[0])):
+            best_run = r
+    if best_run is None:
+        return None
+
+    left, right = best_run[0] * sx, (best_run[1] + 1) * sx
+    width = right - left
+    if width <= 0:
+        return None
+
+    band0 = int(clamp((eye[0] - 0.5 * width) / sx, 0, w - 1))
+    band1 = int(clamp((eye[0] + 0.5 * width) / sx, 1, w))
+    top = None
+    for y in range(0, probe + 1):
+        if any(mask[y][x] for x in range(band0, band1)):
+            top = y * sx
+            break
+    if top is None:
+        top = skin_box[1]
+
+    rows = {}
+    for (gx, gy) in cells:
+        lo, hi = rows.get(gy, (10 ** 9, -1))
+        rows[gy] = (min(lo, gx), max(hi, gx))
+    spans = {gy: (hi - lo + 1) * 4 * scale for gy, (lo, hi) in rows.items()}
+    max_span = max(spans.values()) if spans else width
+    chin = None
+    for gy in sorted(spans):
+        y = gy * 4 * scale
+        if y > eye[1] + 0.15 * width and spans[gy] < 0.55 * max_span:
+            chin = y
+            break
+    if chin is None:
+        chin = eye[1] + 0.62 * width
+
+    return left, right, top, chin
+
+
+def _profile_fallback(img):
+    """单眼侧脸回退：肤色块 + 眼白锚点 + 头部内容包围盒。"""
+    W, H = img.size
+    grid, cw, ch, comps, scale = _skin_map(img)
+    if not comps:
+        return None
+
+    cells = comps[0]
+    xs = [c[0] for c in cells]
+    ys = [c[1] for c in cells]
+    bx0, bx1 = min(xs) * 4, (max(xs) + 1) * 4
+    by0, by1 = min(ys) * 4, (max(ys) + 1) * 4
+
+    rows = {}
+    for (gx, gy) in cells:
+        lo, hi = rows.get(gy, (10 ** 9, -1))
+        rows[gy] = (min(lo, gx), max(hi, gx))
+    best_row, best_span = by0, 0
+    for gy, (lo, hi) in rows.items():
+        if gy > by0 + (by1 - by0) * 0.65:
+            continue
+        span = hi - lo
+        if span > best_span:
+            best_span, best_row = span, gy
+
+    face_w = max(best_span * 4, (bx1 - bx0) * 0.55)
+    if face_w * scale < 0.12 * min(W, H):
+        return None
+
+    skin_box = (bx0 * scale, by0 * scale, bx1 * scale, by1 * scale)
+    eye = _sclera_eye(img, skin_box)
+    if not eye:
+        return None
+
+    geo = _profile_geometry(img, cells, scale, eye["center"])
+    if not geo:
+        return None
+    left, right, top, chin = geo
+    box = (clamp(left, 0, W - 4), clamp(top, 0, H - 4),
+           clamp(right - left, 4, W), clamp(chin - top, 4, H))
+    if box[2] < 0.18 * W or box[3] < 0.18 * H:
+        return None
+
+    return {"box": box, "eye_y": eye["center"][1], "eyes": [eye["center"]],
+            "conf": 0.52, "candidates": 1, "method": "profile-sclera",
+            "eye_source": "sclera-single", "profile": True}
+
+
 def _sat_components(img, work_w=480, cell=4, ratio=0.25):
     """高饱和色块连通域，用于找虹膜。返回 [(bbox, cells, mean_sat)]（采样坐标）。"""
     W, H = img.size
@@ -299,14 +513,22 @@ def detect_face(img):
                        clamp(fw, 4, W), clamp(fh, 4, H))
                 detected = {"box": box, "eye_y": eye_y, "eyes": eyes,
                             "conf": 0.55, "method": "eye-pair",
-                            "eye_source": "detected"}
+                            "eye_source": "detected", "profile": False}
 
     skin = _skin_fallback(img)
     multi = _count_faces(img)
 
     if detected is None:
+        # 单眼侧脸配不出双眼，改走「眼白 + 头部轮廓」定位；
+        # 失败才退回纯肤色块估算。
+        prof = _profile_fallback(img)
+        if prof:
+            prof["candidates"] = multi if multi > 1 else 1
+            prof["skin_coverage"] = round(skin_coverage(img, prof["box"]), 3)
+            return prof
         if skin is None:
             return None
+        skin["candidates"] = multi if multi > 1 else 1
         return skin
 
     # 用皮肤覆盖率给眼睛锚定结果打分；覆盖率过低说明配错了对象
@@ -386,12 +608,13 @@ def build_crops(img, face):
     fx, fy, fw, fh = face["box"]
     eye_y = face["eye_y"]
     face_area = float(fw * fh)
+    eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
     out = []
     for target in TARGET_RATIOS:
         s = math.sqrt(face_area / (0.785 * target))
         s = min(s, min(W, H))
         ideal_left = fx + fw / 2.0 - s / 2.0
-        ideal_top = eye_y - EYE_TARGET * s
+        ideal_top = eye_y - eye_target * s
         left, top = ideal_left, ideal_top
         # 头顶留白（略高于硬门槛）
         top = min(top, fy - MARGIN_BUILD * s)
@@ -447,7 +670,8 @@ def score_crop(img, crop, face):
     margin = min(margins) / s
 
     ratio_score = clamp(1 - abs(face_ratio - 0.62) / 0.20, 0, 1)
-    eye_score = clamp(1 - abs(eye_center_y - EYE_TARGET) / 0.14, 0, 1)
+    eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
+    eye_score = clamp(1 - abs(eye_center_y - eye_target) / 0.14, 0, 1)
     margin_score = clamp(margin / 0.06, 0, 1)
     cost = crop.get("cost", 0.0)
     composition = 100 * (0.45 * ratio_score + 0.35 * eye_score + 0.20 * margin_score)
@@ -467,7 +691,8 @@ def score_crop(img, crop, face):
         sym_score = 100 * (1 - clamp(tilt / 0.18, 0, 1))
         tilt_metric = round(tilt, 3)
     else:
-        sym_score, tilt_metric = 60.0, None
+        # 侧脸只有一只眼，对称性没有比较对象，记中性分而不是扣分
+        sym_score, tilt_metric = (70.0 if face.get("profile") else 60.0), None
 
     # 曝光：过曝（贴白）面积过大说明细节被吃掉
     blown = blown_ratio(img, face["box"])
@@ -477,7 +702,9 @@ def score_crop(img, crop, face):
     reasons = []
     if not (FACE_RATIO_MIN <= face_ratio <= FACE_RATIO_MAX):
         reasons.append("composition_bad:face_ratio")
-    if not (EYE_MIN <= eye_center_y <= EYE_MAX):
+    eye_min, eye_max = (PROFILE_EYE_MIN, PROFILE_EYE_MAX) if face.get("profile") \
+        else (EYE_MIN, EYE_MAX)
+    if not (eye_min <= eye_center_y <= eye_max):
         reasons.append("composition_bad:eye_y")
     if margin < MARGIN_MIN:
         reasons.append("composition_bad:edge_margin")
@@ -741,6 +968,8 @@ def main():
             "reasons": reasons,
             "detect": {"method": face["method"], "conf": face["conf"],
                        "eye_source": face.get("eye_source"),
+                       "profile": bool(face.get("profile")),
+                       "eye_y": round(face["eye_y"], 1),
                        "face_box": [round(v, 1) for v in face["box"]],
                        "skin_coverage": face.get("skin_coverage")},
             "outputs": outputs,
@@ -801,7 +1030,8 @@ def main():
         "brief": brief,
         "capability": {
             "available": ["face_locate_eye_anchor", "face_locate_skin_fallback",
-                          "crop_compensation", "sharpness", "thumb_readability", "dedupe"],
+                          "face_locate_profile_single_eye", "crop_compensation",
+                          "sharpness", "thumb_readability", "dedupe"],
             "unavailable": ["ocr_text", "nsfw", "emotion", "style_embedding", "anatomy",
                             "real_esrgan_superres"],
             "note": "无 OCR/NSFW/情绪/风格/解剖/超分模型，对应闸门记为 null，不参与判定；"
