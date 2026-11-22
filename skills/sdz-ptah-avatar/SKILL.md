@@ -6,8 +6,13 @@ description: Generate anime avatars from a style profile + character card + angl
 # SDZ Ptah Avatar（普塔头像）
 
 把一份「头像需求」执行成可交付的候选图。本 skill 只承担执行链：
-需求 → 三层档案（风格/角色/角度）→ 提示词编译 → 限量出图 → 裁切补偿 →
-裁切后评分与硬门槛 → 多格式导出。
+需求 → 三层档案（风格/角色/角度）→ 提示词编译 → 限量出图 →
+生成质量评分（原图）→ 取景裁切 → 交付校验（成品）→ 多格式导出。
+
+> **第一原则：质量靠生成，后处理只做交付。**
+> 生成图不合适，裁切、放大、调色都救不回来；处理阶段只做取景裁切、几何/截断校验
+> 与格式导出，不把任何后处理当作提升观感的手段。原图不合格的正确动作是换提示词/
+> 换方向/追加候选重抽，不是调裁切参数或放宽阈值。详见「生成优先」一节。
 
 **三层结构**（新增风格或角色只加文件，不改脚本）：
 
@@ -21,6 +26,19 @@ description: Generate anime avatars from a style profile + character card + angl
 `references/protocol.md` 与 `scripts/avatar_pipeline.py` 内，不依赖任何项目目录。
 `ai-anime-avatar/outputs/AI动漫头像生成方案.md` 只是可选外链（补充设计依据），
 不存在或路径变化都不影响执行。
+
+## 生成优先（决策树，优先于处理侧优化）
+
+1. **处理只做交付**：只保留取景裁切、几何与截断校验、格式导出；不把裁切/放大/调色
+   当成提升观感的手段，任何地方都不暗示后处理能改善质量。
+2. **评分对象分开**：raw 原图单独出生成质量分（面部/轮廓、构图、风格、角度），
+   final 只出交付校验分；两者都写进 manifest。成品过闸不得掩盖原图不合格
+   （例如 final PASS 但 raw 已 `subject_cut`）。
+3. **原图不达标就重抽**：换提示词、换方向、追加候选；不要调裁切参数，不要放宽阈值。
+4. **预算花在命中率**：优先改提示词编译、风格档案、角色卡与候选筛选；默认每轮 2 张，
+   命中率低再追加，脚本不自动加预算。
+5. **裁切只做取景**：把 1920 原生图变成方形头像构图（保头顶、居中、留白合理），
+   不修脸、不补画、不修表情；补偿能力上限就是取景。
 
 ## 硬约束（先读，违反则结果不可信）
 
@@ -71,36 +89,52 @@ description: Generate anime avatars from a style profile + character card + angl
 - 缺少 OCR / NSFW / 情绪 / 风格 / 解剖 / 超分模型时，对应闸门记为 `null`，
   不得当成「通过」，也不得口头补分。
 - **每单必须落盘**：订单目录里必须有 `brief.json`、`prompts.json`、`status.json`、
-  `raw/`、`out/`；`%TEMP%` 只作生成中转，生成后立即搬进 `raw/`。
-  中断或失败也要保留已生成图与状态；脚本不得自动删除，清理只能由用户决定。
+  `rounds.json`、`manifest.json` 与各轮目录；`%TEMP%` 只作生成中转，生成后立即搬进
+  对应 `roundNN/`。中断或失败也要保留已生成图与状态；脚本不得自动删除，
+  清理只能由用户决定。
 
 ## 订单落盘（硬性要求，先做）
 
-每单开一个持久目录，路径固定为：
+每单开一个短目录，层级压到最少：
 
 ```text
-<订单根目录>/<YYYYMMDD-HHMMSS>-<slug>/
-├── brief.json       # 需求（含 style_id / character_id / angle / budget）
-├── prompts.json     # 编译后的提示词与实际角度/变体
-├── checklist.json   # 人工角色核对清单（缺必填项不放行）
-├── rounds.json      # 轮次台账：round/count/directions/budget_used（按轮累计）
-├── status.json      # running / completed / failed / interrupted + budget
-├── raw/             # 原始生成图（.jpg），不得缺失；多轮时 raw/round_XX/
-└── out/             # 裁切、导出、budget.json、contact_sheet.jpg、manifest.json、report.md；多轮时 out/round_XX/
+<订单根>/satoshi-01/          # 短名 <角色>-<NN>，不再带时间戳/角度
+├── brief.json
+├── manifest.json             # 原图生成质量分 + 成品交付校验分
+├── contact_sheet.jpg         # 整个订单一张联系表
+├── rounds.json               # 过程台账（轮次/预算/满意度）
+├── status.json               # 过程状态（running/completed/...）
+├── prompts.json              # 编译后的提示词
+├── checklist.json            # 角色人工核对清单
+├── round01/
+│   ├── 01_src.jpg            # 原图
+│   ├── 01_final.png          # 1024 成品（"哪张是最终"就看 _final）
+│   ├── 01_2k.png             # 仅用户要 2K 时
+│   ├── 01_4k.png             # 仅用户要 4K 时
+│   └── 01_q88.jpg            # 仅用户要 JPG 时
+└── round02/
 ```
 
+- **每轮一个目录、完全平铺**：不建 `raw/`、`out/`、`crop/`、`native/`、`png/2k/`、
+  `export/` 等任何子目录；规格与格式只靠文件名后缀区分。
+- 成品 `NN_final.png`，原图 `NN_src.<ext>`，同目录并列；`NN` 是轮内序号 01、02。
+- 订单目录名默认 `<角色>-<NN>`：`rounds.py --new-order --root <根> --character satoshi`
+  自动分配并在重名时递增；只有用户明确要求唯一性时才加 `--stamp`（`-MMDD-HHMM`）。
+- **不再按角度拆订单目录**：角度只写在 `brief.json` / `manifest.json` 里。
 - 订单根目录：用户指定优先；未指定用 `<当前工作区>/avatar-orders/`。
-- `%TEMP%`、`/tmp` 只能做生成中转：生成后立刻 `Move` 到 `raw/`，再跑评分。
-- 中断或失败：把已生成图留在 `raw/`，`status.json` 写 `interrupted` / `failed`
+- `%TEMP%`、`/tmp` 只能做生成中转：生成后立刻 `Move` 到对应 `roundNN/`，再跑评分。
+- 中断或失败：把已生成图留在 `roundNN/`，`status.json` 写 `interrupted` / `failed`
   并记录 `phase`、`raw_count`、`last_error`；不得回滚或清理。
-- `avatar_pipeline.py` 只写 `out/` 下的产物，不会删除订单目录或 `raw/`；
+- `avatar_pipeline.py` 只写轮次目录与订单根的 manifest/联系表，不会删除原图；
   清理订单只能由用户明确要求后执行。
+- **历史订单不迁移**：旧结构（`<时间戳>-<slug>/raw/round_XX`、`out/crop|native|export`）
+  原样保留；`--layout legacy` 仅用于复跑旧订单，新订单一律用默认 `flat`。
 
 `status.json` 最小字段：
 
 ```json
 {
-  "order_id": "20261122-153000-xiaozhi",
+  "order_id": "satoshi-01",
   "state": "running",
   "phase": "generate",
   "created_at": "2026-11-22 15:30:00",
@@ -186,12 +220,13 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
   `remaining -= 1`，并与 `raw_count` 同步，不要事后补账。
 - `image_size`: `square`；`path`: 绝对路径、**不带扩展名**，先落临时中转目录，
   文件名用 `<angle>_v1_r1`（如 `profile_left_v1_r1` / `profile_right_v1_r1`），
-  生成后立即 `Move` 到 `<订单目录>/raw/`，不允许把 raw 留在 `%TEMP%`。
+  生成后立即 `Move` 到 `<订单目录>/roundNN/`，不允许把原图留在 `%TEMP%`；
+  进目录即改名为 `NN_src.<ext>`（`NN` 是轮内序号）。
 - 生成前先 `ToolSearch` 取 `GenerateImage` 的 schema，再用 `DeferExecuteTool` 调用。
   每次调用后核对文件存在且可打开；打不开记为失败，不继续算分。
 - 出图后先放大到 800px 看鼻梁后方，出现第二只眼/眼白直接弃用，
   不进入评分。重抽最多 1 张，且必须换「远眼不可见」的措辞。
-- 一轮生成完成后立即记账（自动创建 `raw/round_XX` 与 `out/round_XX`）：
+- 一轮生成完成后立即记账（自动创建 `roundNN/`，不再有 `raw/`、`out/`）：
 
 ```powershell
 py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record `
@@ -203,8 +238,7 @@ py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record `
 ```powershell
 $skill = Join-Path $env:USERPROFILE ".trae-cn\skills\sdz-ptah-avatar"
 py -3 "$skill\scripts\avatar_pipeline.py" `
-  --raw "<订单目录>\raw" --out "<订单目录>\out" `
-  --brief "<订单目录>\brief.json" --formats 1024 `
+  --raw "<订单目录>" --brief "<订单目录>\brief.json" --formats 1024 `
   --style "$skill\references\styles\tv-anime-cel.json" `
   --character "$skill\references\characters\satoshi.json" `
   --angles "$skill\references\angles.json" `
@@ -212,13 +246,16 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
   --budget 10
 ```
 
-无脸/皮套单改为 `--face-mode faceless --style references/styles/realistic-armor.json
---character references/characters/fox-armor.json`；需要参考图时加 `--references` 并在
-brief 写 `generation` 块，脚本先做后端能力检测。
+- `--raw` 传订单根即可：脚本自己找 `roundNN/` 并读里面的原图；也可以只传单个
+  `roundNN` 目录。默认 `--layout flat`，`--out` 可省（默认写回订单根）。
+- 无脸/皮套单改为 `--face-mode faceless --style references/styles/realistic-armor.json
+  --character references/characters/fox-armor.json`；需要参考图时加 `--references` 并在
+  brief 写 `generation` 块，脚本先做后端能力检测。
 
 - `--formats` 取 `1024` / `2k` / `4k` 的逗号组合；`--jpg` 额外导出压缩版，
-  `--jpg-quality` 默认 88。
-- `--budget` 默认 10；脚本用 `raw/` 实际张数做账，超预算且未加
+  `--jpg-quality` 默认 88。只有用户明确要 2K/4K/JPG 时才传对应参数，
+  否则轮目录里只有 `NN_src.*` 与 `NN_final.png`。
+- `--budget` 默认 10；脚本用轮目录里实际原图张数做账，超预算且未加
   `--allow-over-budget` 时直接退出（码 3），不评分不导出。
 - 不传 `--style` / `--character` / `--checklist` 时对应闸门为 `null`；
   风格/角色单的交付不接受 `null`。
@@ -233,18 +270,29 @@ brief 写 `generation` 块，脚本先做后端能力检测。
 - 未启用角度（`reserved`）传入 `--expected-angle` 会直接 `angle_mismatch`，不是 `null`。
 - 带 `--brief` 但缺少 `confirm.confirmed=true`：脚本直接退出码 4，不评分不导出。
 
-脚本会写出：
+脚本会写出（flat 结构，完全平铺）：
 
-- `out/crop/*_1024.png` 主图（方形，默认交付格式）
-- `out/native/*_native_<px>.png` 原生分辨率方形裁切（归档）
-- `out/export/png/<tier>/*.png` 2K/4K 放大版（保持 1:1）
-- `out/export/jpg/*_q<q>.jpg` 压缩版
-- `out/preview/*_preview.png` 方形预览（不再生成圆形遮罩）
-- `out/budget.json`、`out/contact_sheet.jpg`、`out/manifest.json`、`out/report.md`
+- `<轮目录>/NN_final.png` 1024 成品（方形，默认交付格式）
+- `<轮目录>/NN_src.<ext>` 原图（生成后立即改名归档，不删）
+- `<轮目录>/NN_2k.png` / `NN_4k.png` 放大版（仅当 `--formats` 含该档）
+- `<轮目录>/NN_q<q>.jpg` 压缩版（仅当 `--jpg`）
+- 订单根 `manifest.json`（原图 `raw_quality` + 成品 `final_gate` 分列）、
+  `contact_sheet.jpg`
+
+> raw 生成质量分与 final 交付校验分是两个对象：`raw_quality` 不达标代表这张图
+> 本身就不该交付，不能因为裁切后 `final_gate` PASS 就算数。
 
 ### 6. 判定与补量
 
 - `verdict=PASS` 且 `style` / `character` / `canvas` / `angle` 四道闸门都不为 `FAIL` 才是候选。
+- **两类分分开看**：manifest 里 `raw_quality`（生成质量：面部/构图/风格/角度，
+  阈值 60）与 `final_gate`（交付校验：截断/留白/占比/画布）是两个对象。
+  `final_gate` PASS 不能抵消 `raw_quality` unqualified；交付前必须看 raw 分。
+- **raw 不达标的决策树**（优先级高于调参）：
+  1) 换提示词措辞（最直接，先动风格/单眼/构图条款）；
+  2) 换方向（如 left↔right）或换角色卡细节；
+  3) 追加候选（用户同意后加张数，受预算约束）。
+  不要调裁切参数、不要放宽 `edge_density` / 饱和度等阈值去让图过闸。
 - 风格闸门看主色数、饱和度、边缘密度、背景平涂度；角色闸门看人工清单必填项；
   画布闸门看方形与边框/装饰圈；角度闸门看侧脸双向、正脸与无脸面罩判据
   （侧脸：单眼 + 瞳孔在对应半侧 + 鼻尖侧 + 眼位；正脸：双眼 + eye_y 0.24–0.38 +
@@ -264,13 +312,14 @@ brief 写 `generation` 块，脚本先做后端能力检测。
 
 ### 7. 汇报
 
-给出：候选清单（文件名、角度、总分、`face_ratio`、`eye_center_y`、`cut_edges`、
-`sharpness`、定位方式、风格/角色/画布/角度闸门结论、原因码）、
+给出：候选清单（文件名、角度、总分、**raw 生成质量分与状态**、`face_ratio`、
+`eye_center_y`、`cut_edges`、`sharpness`、定位方式、风格/角色/画布/角度闸门结论、原因码）、
 性别与实际朝向（含 `angle_source`：default / user）、确认来源
 （`chat_message` / `confirmation_card`）、
 **本轮实际生成张数与累计预算**（`rounds.json` 的 `budget_used` / `remaining`）、
-contact sheet 路径、导出路径、订单目录绝对路径
-（`raw/`、`out/manifest.json`、`out/report.md` 必须在其中）、
+contact sheet 路径、交付路径、订单目录绝对路径
+（`<订单目录>\manifest.json`、`<订单目录>\contact_sheet.jpg`、
+`<订单目录>\roundNN\NN_final.png` 必须在其中）、
 以及放大与不可用能力说明。原因码释义见 `references/protocol.md` 第 6 节。
 把 `status.json` 重新写成 `state=completed`、`phase=done`。
 
@@ -304,11 +353,11 @@ py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
 
 ## 输出格式速查
 
-| 需求 | 参数 | 产物目录 |
+| 需求 | 参数 | 产物（都在 `roundNN/` 内，平铺） |
 |-|-|-|
-| 默认（站点/社区头像） | `--formats 1024` | `crop/*_1024.png` |
-| 高清展示 | `--formats 1024,2k`（或 `4k`） | `export/png/2k/`、`export/png/4k/` |
-| 有体积限制的网页/App | 追加 `--jpg --jpg-quality 88` | `export/jpg/*_q88.jpg` |
+| 默认（站点/社区头像） | `--formats 1024` | `NN_final.png` |
+| 高清展示 | `--formats 1024,2k`（或 `4k`） | 追加 `NN_2k.png` / `NN_4k.png` |
+| 有体积限制的网页/App | 追加 `--jpg --jpg-quality 88` | 追加 `NN_q88.jpg` |
 
 放大手段、速度与画质代价、放大后复检项，见 `references/protocol.md` 第 7 节。
 

@@ -1650,6 +1650,91 @@ def resolve_round(name, path, cli_round=None, brief_round=None):
     return "__batch__", "unknown"
 
 
+_ROUND_DIR = re.compile(r"^round[_-]?(\d+)$", re.I)
+_FLAT_FINAL = re.compile(r"_final\.(?:png|jpe?g|webp)$", re.I)
+_FLAT_EXPORT = re.compile(
+    r"^\d+_(?:q\d+|(?:2k|4k)(?:_q\d+)?)\.(?:png|jpe?g)$", re.I)
+_FLAT_SRC = re.compile(r"^(\d+)_src\.([A-Za-z0-9]+)$", re.I)
+
+
+def flat_sources(round_dir):
+    """平铺轮次目录里的原图：排除 _final 与按规格导出的 2k/4k/jpg。"""
+    names = []
+    for name in sorted(os.listdir(round_dir)):
+        path = os.path.join(round_dir, name)
+        if not os.path.isfile(path):
+            continue
+        if not name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            continue
+        if _FLAT_FINAL.search(name) or _FLAT_EXPORT.match(name):
+            continue
+        names.append(name)
+    return names
+
+
+def flat_numbers(names):
+    """给本轮原图分配 01、02 序号；已带 NN_src 的沿用原序号，其余取下一个空位。"""
+    nums = [None] * len(names)
+    used = set()
+    for i, name in enumerate(names):
+        m = _FLAT_SRC.match(name)
+        if m:
+            nums[i] = int(m.group(1))
+            used.add(nums[i])
+    nxt = 1
+    for i in range(len(names)):
+        if nums[i] is None:
+            while nxt in used:
+                nxt += 1
+            nums[i] = nxt
+            used.add(nxt)
+    return nums
+
+
+def flat_rename_source(path, nn):
+    """把原图落到同目录 NN_src.<ext>；返回新路径（已是该名则不动）。"""
+    stem, ext = os.path.splitext(path)
+    target = os.path.join(os.path.dirname(path),
+                          "%02d_src%s" % (nn, ext.lower() or ".png"))
+    if os.path.abspath(path) != os.path.abspath(target):
+        if os.path.exists(target):
+            raise OSError("目标已存在，拒绝覆盖：%s" % target)
+        os.replace(path, target)
+    return target
+
+
+def export_flat(master, native_crop, nn, round_dir, formats, want_jpg, jpg_q):
+    """新结构：成品 NN_final.png；可选规格平铺为 NN_2k.png / NN_q88.jpg。"""
+    outputs = {}
+    upscale_info = {"applied": False, "method": "none", "tiers": {}}
+    tag = "%02d" % nn
+
+    final_path = os.path.join(round_dir, tag + "_final.png")
+    master.save(final_path)
+    outputs["final"] = rel(final_path, round_dir)
+
+    for tier in formats:
+        if tier == "1024":
+            continue
+        size = SIZE_TIERS[tier]
+        factor = size / float(native_crop.width)
+        big = upscale(native_crop, size)
+        p = os.path.join(round_dir, "%s_%s.png" % (tag, tier))
+        big.save(p)
+        outputs["png_" + tier] = rel(p, round_dir)
+        upscale_info["applied"] = True
+        upscale_info["method"] = "Pillow LANCZOS (single-pass)"
+        upscale_info["tiers"][tier] = {"size": size, "factor": round(factor, 2),
+                                       "detail_added": False}
+
+    if want_jpg and "1024" in formats:
+        jp = os.path.join(round_dir, "%s_q%d.jpg" % (tag, jpg_q))
+        master.convert("RGB").save(jp, quality=jpg_q, optimize=True, progressive=True)
+        outputs["jpg_1024_q%d" % jpg_q] = rel(jp, round_dir)
+
+    return outputs, upscale_info
+
+
 # ---------------------------------------------------------------- 风格 / 角度 / 角色闸门
 
 def load_json(path):
@@ -2378,12 +2463,73 @@ def rel(path, base):
     return os.path.relpath(path, base).replace("\\", "/")
 
 
+RAW_QUALITY_MIN = 60
+
+
+def raw_quality(face, content_gate, style_gate, angle_gate, face_mode):
+    """原图生成质量分（与裁切后交付分分开）。
+
+    只回答「这张生成图本身够不够好」，不评价后处理。不达标时正确动作是重抽，
+    不是调裁切参数或放宽阈值。四个维度：面部/轮廓 40、构图 30、风格 20、角度 10。
+    """
+    conf = float(face.get("conf") or 0.0)
+    face_score = 40 if conf >= 0.6 else (25 if conf >= CONF_MIN else 0)
+
+    if content_gate.get("passed") is True:
+        comp_score = 30
+    elif content_gate.get("passed") is None:
+        comp_score = 15
+    else:
+        comp_score = 0
+
+    if style_gate is None:
+        style_score = 10
+    else:
+        style_score = 20 if style_gate["passed"] else 0
+
+    if angle_gate is None:
+        angle_score = 5
+    elif angle_gate["passed"]:
+        angle_score = 10
+    else:
+        angle_score = 0
+
+    reasons = []
+    if face.get("candidates", 1) > 1:
+        reasons.append("raw:multi_face")
+    if conf < CONF_MIN:
+        reasons.append("raw:low_conf")
+    if content_gate.get("passed") is False:
+        reasons.extend("raw:" + r for r in content_gate.get("reasons", []))
+    if style_gate is not None and not style_gate["passed"]:
+        reasons.extend("raw:" + r for r in style_gate.get("reasons", []))
+    if angle_gate is not None and not angle_gate["passed"]:
+        reasons.append("raw:" + angle_gate["reason"])
+
+    total = face_score + comp_score + style_score + angle_score
+    return {
+        "scope": "generation",
+        "total": float(total),
+        "scores": {"face": face_score, "composition": comp_score,
+                   "style": style_score, "angle": angle_score},
+        "status": "qualified" if total >= RAW_QUALITY_MIN else "unqualified",
+        "threshold": RAW_QUALITY_MIN,
+        "reasons": reasons,
+        "note": "原图生成质量分；不达标应换提示词/方向/追加候选重抽，"
+                "不靠裁切、放大或放宽阈值补救。",
+    }
+
+
 # ---------------------------------------------------------------- 主流程
 
 def main():
     ap = argparse.ArgumentParser(description="anime avatar crop + score + export pipeline")
-    ap.add_argument("--raw", required=True, help="原始生成图目录")
-    ap.add_argument("--out", required=True, help="输出目录")
+    ap.add_argument("--raw", required=True,
+                    help="原始生成图目录；flat 下为订单根（含 roundNN）或单个 roundNN 目录")
+    ap.add_argument("--out", default=None,
+                    help="输出目录；legacy 必填。flat 下可选，作为订单根（manifest/联系表位置）")
+    ap.add_argument("--layout", choices=("flat", "legacy"), default="flat",
+                    help="flat=每轮平铺 NN_final/NN_src（默认，新订单）；legacy=旧 crop/native 结构")
     ap.add_argument("--brief", default=None, help="brief.json（可选，用于报告头）")
     ap.add_argument("--formats", default="1024", help="逗号分隔：1024,2k,4k")
     ap.add_argument("--jpg", action="store_true", help="额外导出 JPG 压缩版")
@@ -2408,6 +2554,10 @@ def main():
     args = ap.parse_args()
 
     raw_dir, out_dir = args.raw, args.out
+    layout = args.layout
+    if layout == "legacy" and not out_dir:
+        print("--layout legacy 需要 --out")
+        return 2
     formats = [f.strip() for f in args.formats.split(",") if f.strip()]
     for f in formats:
         if f not in SIZE_TIERS:
@@ -2431,24 +2581,9 @@ def main():
         except (TypeError, ValueError):
             pass
 
-    for sub in ("crop", "native", "preview"):
-        os.makedirs(os.path.join(out_dir, sub), exist_ok=True)
-
-    files = [f for f in sorted(os.listdir(raw_dir))
-             if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))]
-    if not files:
-        print("no images in %s" % raw_dir)
-        return 2
-
-    used = len(files)
-    budget = {"limit": args.budget, "used": used, "remaining": max(0, args.budget - used),
-              "exceeded": used > args.budget, "source": "raw_count"}
-    with open(os.path.join(out_dir, "budget.json"), "w", encoding="utf-8") as fh:
-        json.dump(budget, fh, ensure_ascii=False, indent=2)
-    if budget["exceeded"] and not args.allow_over_budget:
-        print("budget exceeded: raw=%d budget=%d，已停止评分。"
-              "请确认是否继续，确认后加 --allow-over-budget。" % (used, args.budget))
-        return 3
+    if layout == "legacy":
+        for sub in ("crop", "native", "preview"):
+            os.makedirs(os.path.join(out_dir, sub), exist_ok=True)
 
     profile = load_json(args.style)
     card = load_json(args.character)
@@ -2466,18 +2601,77 @@ def main():
         expected_default = "front"
     face_mode = args.face_mode or (norm or {}).get("face_mode") or "faced"
 
-    # 轮次解析：--round > brief.round > 文件名 vN/roundN > 父目录名。
+    # 轮次解析：--round > brief.round > 文件名 rN/roundN > 父目录名。
     # 都取不到时不再静默当同轮，打印警告并在 manifest 记 round_source=unknown。
     cli_round = args.round
     brief_round = (norm or {}).get("round")
-    round_map = {name: resolve_round(name, os.path.join(raw_dir, name),
-                                     cli_round, brief_round)
-                 for name in files}
-    unknown_rounds = [n for n, (_, src) in round_map.items() if src == "unknown"]
+    if layout == "flat":
+        subs = [d for d in sorted(os.listdir(raw_dir))
+                if os.path.isdir(os.path.join(raw_dir, d)) and _ROUND_DIR.match(d)]
+        if subs:
+            round_dirs = [os.path.join(raw_dir, d) for d in subs]
+            order_root = out_dir or os.path.abspath(raw_dir)
+        else:
+            # 单个轮次目录：优先识别 roundNN 目录名，否则按单轮平铺处理
+            round_dirs = [raw_dir]
+            order_root = out_dir or os.path.dirname(os.path.abspath(raw_dir))
+            if not _ROUND_DIR.match(os.path.basename(os.path.abspath(raw_dir))):
+                print("WARNING: --raw 不是 roundNN 目录，也未包含 roundNN；"
+                      "已按单轮平铺处理，原图将改名为 NN_src。")
+        os.makedirs(order_root, exist_ok=True)
+        work = []
+        for rd in round_dirs:
+            names = flat_sources(rd)
+            nums = flat_numbers(names)
+            for name, nn in zip(names, nums):
+                path = os.path.join(rd, name)
+                rkey, rsrc = resolve_round(name, path, cli_round, brief_round)
+                angle = resolve_angle(name, angle_matrix, expected_default)
+                try:
+                    path = flat_rename_source(path, nn)
+                    name = os.path.basename(path)
+                except OSError as exc:
+                    print("WARNING: 原图改名失败（%s），保留原名。" % exc)
+                prefix = rkey if rkey.startswith("r") and rkey[1:].isdigit() else "batch"
+                work.append({"name": name, "path": path, "round_dir": rd, "nn": nn,
+                             "round": rkey, "round_source": rsrc, "angle": angle,
+                             "file": rel(path, order_root),
+                             "id": "%s-%02d" % (prefix, nn)})
+        out_dir = order_root
+        ref_dir = order_root
+    else:
+        files = [f for f in sorted(os.listdir(raw_dir))
+                 if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))]
+        work = []
+        for name in files:
+            path = os.path.join(raw_dir, name)
+            rkey, rsrc = resolve_round(name, path, cli_round, brief_round)
+            work.append({"name": name, "path": path, "round_dir": out_dir, "nn": None,
+                         "round": rkey, "round_source": rsrc,
+                         "angle": resolve_angle(name, angle_matrix, expected_default),
+                         "file": name, "id": os.path.splitext(name)[0]})
+        ref_dir = raw_dir
+
+    if not work:
+        print("no images in %s" % raw_dir)
+        return 2
+
+    used = len(work)
+    budget = {"limit": args.budget, "used": used, "remaining": max(0, args.budget - used),
+              "exceeded": used > args.budget, "source": "raw_count"}
+    if layout == "legacy":
+        with open(os.path.join(out_dir, "budget.json"), "w", encoding="utf-8") as fh:
+            json.dump(budget, fh, ensure_ascii=False, indent=2)
+    if budget["exceeded"] and not args.allow_over_budget:
+        print("budget exceeded: raw=%d budget=%d，已停止评分。"
+              "请确认是否继续，确认后加 --allow-over-budget。" % (used, args.budget))
+        return 3
+
+    unknown_rounds = [w for w in work if w["round_source"] == "unknown"]
     if unknown_rounds:
         print("WARNING: 轮次未知（%d/%d 张未识别到轮次），已按单轮处理，"
               "可能误判重复；建议用 --round 或 brief.round 显式指定。"
-              % (len(unknown_rounds), len(files)))
+              % (len(unknown_rounds), len(work)))
 
     # 参考图能力检测（调用前置）：不支持时默认 fail，绝不静默退回文生图
     backends = load_json(args.backends or default_backends_path())
@@ -2487,7 +2681,7 @@ def main():
             print("generation capability: " + e)
         print("已停止：参考图能力不满足，退不退回文生图只能由用户显式决定。")
         return 4
-    refs = load_reference_images(args.references, brief, raw_dir, brief_path)
+    refs = load_reference_images(args.references, brief, ref_dir, brief_path)
     if gen_check:
         if gen_check["identity_unverified"]:
             print("WARNING: 本单 identity_unverified=true —— 参考图未真正参与生成，"
@@ -2497,18 +2691,28 @@ def main():
             return 4
 
     results = []
-    for name in files:
-        item_id = os.path.splitext(name)[0]
-        path = os.path.join(raw_dir, name)
+    for item in work:
+        name = item["name"]
+        item_id = item["id"]
+        path = item["path"]
+        item_round = item["round"]
+        item_round_source = item["round_source"]
+        expected_angle = item["angle"]
         try:
             img = Image.open(path)
             img.load()
             img = img.convert("RGB")
         except Exception as exc:
-            results.append({"id": item_id, "file": name, "error": "open_failed:%s" % exc,
+            results.append({"id": item_id, "file": item["file"],
+                            "error": "open_failed:%s" % exc,
                             "verdict": "ERROR", "total": 0.0, "reasons": ["open_failed"],
-                            "round": round_map[name][0],
-                            "round_source": round_map[name][1]})
+                            "raw_quality": {"scope": "generation", "total": 0.0,
+                                            "scores": {}, "status": "unreadable",
+                                            "threshold": RAW_QUALITY_MIN,
+                                            "reasons": ["raw:open_failed"],
+                                            "note": "原图不可读，无法评估生成质量。"},
+                            "round": item_round,
+                            "round_source": item_round_source})
             continue
 
         image_content = _content_analysis(img)
@@ -2518,7 +2722,7 @@ def main():
             face = detect_face(img)
         if not face:
             results.append({
-                "id": item_id, "file": name, "verdict": "REJECT", "total": 0.0,
+                "id": item_id, "file": item["file"], "verdict": "REJECT", "total": 0.0,
                 "metrics": {}, "scores": {}, "gates": {"face": False},
                 "reasons": ["locate_failed"],
                 "face_mode": face_mode,
@@ -2530,8 +2734,13 @@ def main():
                                    + "这是定位失败，不等于构图不合格"},
                 "raw": {"content": image_content},
                 "outputs": {}, "detect": None,
-                "round": round_map[name][0],
-                "round_source": round_map[name][1]})
+                "raw_quality": {"scope": "generation", "total": 0.0,
+                                "scores": {}, "status": "unqualified",
+                                "threshold": RAW_QUALITY_MIN,
+                                "reasons": ["raw:locate_failed"],
+                                "note": "定位失败：属于生成图问题，应重抽而不是调裁切。"},
+                "round": item_round,
+                "round_source": item_round_source})
             continue
 
         best = None
@@ -2570,7 +2779,6 @@ def main():
         style_gate = check_style(smetrics, profile)
         cmetrics = canvas_metrics(master)
         canvas_gate = check_canvas(cmetrics)
-        expected_angle = resolve_angle(name, angle_matrix, expected_default)
         angle_metrics = None
         if face_mode == "faceless":
             angle_metrics = _faceless_angle_metrics(img, face, image_content)
@@ -2590,6 +2798,7 @@ def main():
         else:
             detected_angle = detect_angle(img, face, best["metrics"])
         angle_gate = check_angle(expected_angle, detected_angle, best["metrics"], angle_matrix)
+        rawq = raw_quality(face, input_content_gate, style_gate, angle_gate, face_mode)
         ref_sim = reference_similarity(master, refs) if refs else None
 
         tid, tedge, tcontrast = thumb_readability(master)
@@ -2622,14 +2831,18 @@ def main():
             reasons.append(angle_gate["reason"])
         verdict = "PASS" if not reasons else "REJECT"
 
-        # 方形预览（不再生成圆形遮罩产物）
-        prev = master.resize((256, 256), resample())
-        prev_path = os.path.join(out_dir, "preview", item_id + "_preview.png")
-        prev.save(prev_path)
-
-        outputs, upinfo = export_image(master, native_crop, item_id, out_dir,
-                                       formats, args.jpg, args.jpg_quality)
-        outputs["preview"] = rel(prev_path, out_dir)
+        if layout == "flat":
+            outputs, upinfo = export_flat(master, native_crop, item["nn"],
+                                          item["round_dir"], formats,
+                                          args.jpg, args.jpg_quality)
+        else:
+            # 方形预览（不再生成圆形遮罩产物）
+            prev = master.resize((256, 256), resample())
+            prev_path = os.path.join(out_dir, "preview", item_id + "_preview.png")
+            prev.save(prev_path)
+            outputs, upinfo = export_image(master, native_crop, item_id, out_dir,
+                                           formats, args.jpg, args.jpg_quality)
+            outputs["preview"] = rel(prev_path, out_dir)
 
         # 放大后复检：构图比值与尺度无关；可读性/清晰度需复测
         recheck = None
@@ -2651,7 +2864,7 @@ def main():
 
         results.append({
             "id": item_id,
-            "file": name,
+            "file": item["file"],
             "verdict": verdict,
             "total": best["total"],
             "metrics": best["metrics"],
@@ -2684,9 +2897,10 @@ def main():
             "face_mode": face_mode,
             "metric_set": best.get("metric_set", "face_metrics"),
             "face_metrics_applied": best.get("face_metrics_applied", True),
-            "round": round_map[name][0],
-            "round_source": round_map[name][1],
+            "round": item_round,
+            "round_source": item_round_source,
             "expected_angle": expected_angle,
+            "raw_quality": rawq,
             "angle_metrics": angle_metrics,
             "reference_similarity": ref_sim,
             "generation": gen_check,
@@ -2751,6 +2965,7 @@ def main():
             "backend": "agent-side",
             "reproducible": False,
             "native_limit": NATIVE_LIMIT,
+            "layout": layout,
             "formats": formats,
             "jpg": {"enabled": args.jpg, "quality": args.jpg_quality},
             "upscale": {
@@ -2926,8 +3141,9 @@ def main():
               "> 默认朝向按性别：男左、女右、未指定默认左；用户可覆盖；带 brief 时必须有 confirm.confirmed，否则拒绝执行；",
               "> 单眼判定仍可能把远眼未检出的 3/4 脸当成侧脸，800px 人工复查不可省。",
               "> 情绪、解剖、风格 embedding 无本地模型，记 null，不参与总分。"]
-    with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines))
+    if layout == "legacy":
+        with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines))
 
     print("total=%d pass=%d best=%.1f sheet=%s" %
           (len(results), len(passed), ranked[0]["total"] if ranked else 0,

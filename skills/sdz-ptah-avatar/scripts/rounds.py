@@ -25,6 +25,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -257,11 +258,9 @@ def do_record(order_dir, budget, round_no, count, ids, catalog, available,
               "--allow-over-budget（并可用 --budget 调整上限）。")
         return EXIT_BUDGET
 
-    tag = "round_%02d" % round_no
-    raw_dir = os.path.join(order_dir, "raw", tag)
-    out_dir = os.path.join(order_dir, "out", tag)
-    os.makedirs(raw_dir, exist_ok=True)
-    os.makedirs(out_dir, exist_ok=True)
+    tag = "round%02d" % round_no
+    round_dir = os.path.join(order_dir, tag)
+    os.makedirs(round_dir, exist_ok=True)
 
     entry = {
         "round": round_no,
@@ -270,8 +269,9 @@ def do_record(order_dir, budget, round_no, count, ids, catalog, available,
         "budget_used": used + count,
         "generated_at": now_text(),
         "satisfaction": satisfaction or "pending",
-        "raw_dir": os.path.relpath(raw_dir, order_dir).replace("\\", "/"),
-        "out_dir": os.path.relpath(out_dir, order_dir).replace("\\", "/"),
+        "round_dir": tag,
+        "raw_dir": tag,
+        "out_dir": tag,
     }
     data["rounds"].append(entry)
     prior_pending = [int(r.get("round") or 0) for r in data["rounds"]
@@ -313,9 +313,38 @@ def do_set_satisfaction(order_dir, budget, round_no, satisfaction):
     return EXIT_OK
 
 
+def do_new_order(root, character, stamp=False):
+    """分配短订单目录 <角色>-<NN>；重名时序号递增，不默认带时间戳。"""
+    os.makedirs(root, exist_ok=True)
+    base = re.sub(r"[^0-9A-Za-z_-]+", "-", character or "order").strip("-").lower()
+    base = base or "order"
+    pat = re.compile(r"^" + re.escape(base) + r"-(\d+)", re.I)
+    used = []
+    for name in os.listdir(root):
+        m = pat.match(name)
+        if m:
+            used.append(int(m.group(1)))
+    n = max(used) + 1 if used else 1
+    name = "%s-%02d" % (base, n)
+    if stamp:
+        name += datetime.now().strftime("-%m%d-%H%M")
+    path = os.path.join(root, name)
+    os.makedirs(path, exist_ok=False)
+    print(json.dumps({"order_dir": path, "name": name, "round_dir": "round01"},
+                     ensure_ascii=False))
+    return EXIT_OK
+
+
 def main():
     ap = argparse.ArgumentParser(description="头像订单轮次与预算台账")
-    ap.add_argument("--order", required=True, help="订单目录")
+    ap.add_argument("--order", default=None, help="订单目录")
+    ap.add_argument("--new-order", action="store_true",
+                    help="分配并创建短订单目录 <角色>-<NN>")
+    ap.add_argument("--root", default=None, help="--new-order 的订单根目录")
+    ap.add_argument("--character", default=None,
+                    help="--new-order 的角色 id（用于短目录名）")
+    ap.add_argument("--stamp", action="store_true",
+                    help="--new-order 附加 MMDD-HHMM 短时间戳（仅需唯一时）")
     ap.add_argument("--check", action="store_true", help="查看预算余额")
     ap.add_argument("--preview", action="store_true",
                     help="解析改进方向并输出 prompt 措辞")
@@ -335,6 +364,15 @@ def main():
                     help="改进方向目录 JSON")
     args = ap.parse_args()
 
+    if args.new_order:
+        if not args.root or not args.character:
+            print("--new-order 需要 --root 与 --character")
+            return EXIT_INPUT
+        return do_new_order(args.root, args.character, args.stamp)
+
+    if not args.order:
+        print("必须指定 --order（或 --new-order）")
+        return EXIT_INPUT
     if not (args.check or args.preview or args.record
             or args.set_satisfaction):
         print("必须指定 --check / --preview / --record / --set-satisfaction")

@@ -4,6 +4,19 @@
 可选外链（补充设计依据，缺失不影响本文件生效）：
 `ai-anime-avatar/outputs/AI动漫头像生成方案.md`（第 1.3、2.6、3.2、3.4、4.x 节）。
 
+> **第一原则（优先于所有处理侧优化）：质量靠生成，后处理只做交付。**
+> 生成图不合适，裁切、放大、调色都救不回来。因此：
+> 1. 处理阶段只保留三件事——取景裁切、几何与截断校验、格式导出；任何条款都不得
+>    暗示后处理能提升观感。
+> 2. **评分对象分开**：原图必须单独出生成质量分 `raw_quality`（面部/轮廓、构图、
+>    风格、角度，阈值 60）；成品只出交付校验分 `final_gate`（截断/留白/占比/画布）。
+>    两者都写进 `manifest.json`，**成品过闸不得掩盖原图不合格**。
+> 3. **原图不达标就重抽**：换提示词、换方向、追加候选；不调裁切参数、不放宽阈值。
+> 4. 改进预算放在提示词编译、风格档案、角色卡与候选筛选；默认每轮 2 张，
+>    命中率低再追加，脚本不自动加预算。
+> 5. 裁切只做取景：1920 原生 → 方形头像构图（保头顶、居中、留白合理）；
+>    不修脸、不补画、不修表情，补偿能力上限就是取景。
+
 > **当前范围（硬性）**：做**侧脸头像**，朝左（`profile_left`，鼻尖在左、耳朵在右）
 > 与朝右（`profile_right`，鼻尖在右、耳朵在左）双向都启用。
 > 默认朝向按性别：**男性朝左、女性朝右、未指定默认朝左并提示确认**；用户可手动覆盖。
@@ -306,14 +319,14 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 首轮 | 默认 2 张（画质默认 1K）；必须完成确认门后才允许调用 |
 | 二轮补量 | 只在预算内、且用户同意后补；同一角度最多再 1 张 |
 | 单需求总预算 | `--budget`，默认 **10**；每张调用都计数，**按轮累计**，超预算停下确认 |
-| 轮次记录 | 每轮写 `rounds.json`（`round/count/directions[]/budget_used`），产物落 `raw/round_XX`、`out/round_XX`；历史轮次不覆盖 |
+| 轮次记录 | 每轮写 `rounds.json`（`round/count/directions[]/budget_used`），产物落 `<订单目录>/roundNN/`（平铺）；历史轮次不覆盖 |
 | 预算落盘 | `status.json` 的 `budget{limit,used,remaining}` 每次生成后 +1；manifest 记录实际张数 |
 | 侧脸变体 | 需要重抽时，换「远眼不可见」的措辞（至少两种写法），不要原句连抽 |
 | 侧脸验收 | 每张先放大到 800px 看鼻梁后方；出现第二只眼/眼白即弃用，不进入评分 |
 | 重抽规则 | 同一角度连续 2 次不满足 `subject_cut` / `angle_mismatch` / `angle_undetermined` 即停，先报告再决定 |
 | 确认门 | `brief.confirm.confirmed` 必须为 `true`；未确认不得调用 `GenerateImage`，流水线直接退出码 4 |
-| 命名 | `raw/<angle>_v<variant>_r<round>.jpg`，如 `profile_left_v1_r1.jpg`；`v` 是变体、`r` 是轮次（去重按 `r` 分组）；判定以 `brief.angle` / `--expected-angle` 为准，文件名只作标识 |
-| 落盘 | 先写临时中转路径，生成后逐张 `Move` 到 `<订单目录>/raw/`；不得留在 `%TEMP%` |
+| 命名 | 生成中转名 `<angle>_v<variant>_r<round>.jpg`（如 `profile_left_v1_r1.jpg`）；`v` 是变体、`r` 是轮次（去重按 `r` 分组）；进轮目录后改名为 `NN_src.<ext>`，成品为 `NN_final.png` |
+| 落盘 | 先写临时中转路径，生成后逐张 `Move` 到 `<订单目录>/roundNN/` 并改 `NN_src.<ext>`；不得留在 `%TEMP%` |
 | 失败处理 | 文件缺失或打不开记为该次失败，不进入评分；已生成图与 `status.json` 必须保留 |
 
 不可复现：同一 prompt 两次结果不同，manifest 只记录 prompt 与时间，不记录 seed。
@@ -396,7 +409,7 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 3. 生成前跑 `rounds.py --check`：余额 ≤0 时**必须先问用户是否追加预算**，
    确认后用 `--budget N` 调整上限；**不得静默超额**；
 4. 出图后 `rounds.py --record --round N --count N --directions ...`，
-   自动创建 `raw/round_XX` 与 `out/round_XX`，历史轮次不覆盖。
+   自动创建 `<订单目录>/roundNN/`，历史轮次不覆盖。
 
 ```powershell
 py -3 scripts/rounds.py --order "<订单目录>" --check
@@ -419,7 +432,7 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
 ```json
 {
   "schema": "avatar-rounds/1.0",
-  "order_id": "20261122-153000-xiaozhi",
+  "order_id": "satoshi-01",
   "budget_limit": 10,
   "budget_used": 2,
   "remaining": 8,
@@ -433,8 +446,7 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
       "budget_used": 2,
       "generated_at": "2026-11-22 15:31:20",
       "satisfaction": "pending",
-      "raw_dir": "raw/round_01",
-      "out_dir": "out/round_01"
+      "round_dir": "round01"
     }
   ]
 }
@@ -614,7 +626,7 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 1. `--round <值>` → `round_source=cli`，最高优先级，覆盖下方全部推断；
 2. `brief.round` 字段 → `round_source=brief`；
 3. 文件名里的 `rN` / `roundN` → `round_source=filename`（如 `profile_left_v1_r1` → r1）；
-4. 父目录名里的 `roundN` / `rN` → `round_source=dir`（如 `raw/round_02` → r2）；
+4. 父目录名里的 `roundN` / `rN` → `round_source=dir`（如 `<订单目录>/round02` → r2）；
 5. 都没有 → `__batch__` / `round_source=unknown`，见下方告警。
 
 **命名约定**：`<angle>_v<variant>_r<round>`，如 `profile_left_v1_r1.jpg`。
@@ -811,6 +823,9 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `2k` | 2048×2048 | 原生裁切 Lanczos 放大 | 高清展示位 |
 | `4k` | 4096×4096 | 原生裁切 Lanczos 放大 | 仅大图展示，代价最大 |
 
+flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘）；成品落
+`NN_final.png`，可选档位落 `NN_2k.png` / `NN_4k.png`。
+
 ### 7.2 放大手段与代价（本机条件）
 
 - **手段**：Pillow Lanczos 单次插值。
@@ -825,7 +840,7 @@ total = (40 × face_quality + 60 × composition) ÷ 100
   - 锐度按像素统计会随插值变化，只作参考，不能当「更清晰」的证据。
 - **不可用**：Real-ESRGAN / waifu2x 等动漫超分**需额外依赖，本机不可用**
   （无 numpy/torch/onnx，pip 无网络）。替代路径：
-  ① 只交付 `1024`/`2k`；② 在具备 GPU 的机器上离线超分后替换 `export/png/`；
+  ① 只交付 `1024`/`2k`；② 在具备 GPU 的机器上离线超分后替换 `NN_2k.png`/`NN_4k.png`；
   ③ 改用可控生成后端原生出高分辨率（见方案附录 D）。
 
 ### 7.3 JPG 压缩（体积受限场景）
@@ -849,32 +864,60 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 
 ## 8. 命名、目录与 manifest
 
-### 8.0 订单落盘（硬性要求）
+### 8.0 订单落盘（硬性要求，flat 结构）
 
-每单一个持久订单目录，命名 `<YYYYMMDD-HHMMSS>-<slug>`，订单根目录由用户指定，
-未指定时用 `<当前工作区>/avatar-orders/`：
+每单一个短目录，层级压到最少。默认名 `<角色>-<NN>`（如 `satoshi-01`），
+由 `rounds.py --new-order --root <根> --character <id>` 分配，重名自动递增；
+只有用户明确要求唯一性时才加 `--stamp` 生成 `-MMDD-HHMM` 短时间戳。
+订单根目录由用户指定，未指定时用 `<当前工作区>/avatar-orders/`：
 
 ```
-<订单根目录>/<订单目录>/
-├── brief.json      # 需求单
-├── prompts.json    # 4 条编译后提示词 + 实际使用变体
-├── rounds.json     # 轮次台账：round/count/directions/budget_used（按轮累计）
-├── status.json     # running / completed / failed / interrupted
-├── raw/            # 原始生成图 v1_r1.jpg …（永不删除；多轮时 raw/round_XX/）
-└── out/            # 见 8.1（多轮时 out/round_XX/）
+<订单根目录>/satoshi-01/
+├── brief.json
+├── prompts.json
+├── rounds.json
+├── status.json
+├── checklist.json
+├── manifest.json           # 原图 raw_quality + 成品 final_gate 分列
+├── contact_sheet.jpg
+├── round01/                # 完全平铺，无任何子目录
+│   ├── 01_src.jpg          # 原图
+│   ├── 01_final.png        # 1024 成品
+│   ├── 01_2k.png           # 仅用户要 2K 时
+│   ├── 01_4k.png           # 仅用户要 4K 时
+│   └── 01_q88.jpg          # 仅用户要 JPG 时
+└── round02/
 ```
 
-- `%TEMP%` / `/tmp` 只能作生成中转，逐张生成后立即 `Move` 进 `raw/`；
-  流程结束前必须确认 `raw/` 里没有缺图，禁止把 raw 留在临时目录。
-- 中断、超预算、脚本报错都不得回滚：已生成图留在 `raw/`，
+- **每轮一个目录、完全平铺**：不建 `raw/`、`out/`、`crop/`、`native/`、`png/2k/`、
+  `export/` 等子目录；规格与格式只靠文件名后缀区分。
+- 成品 `NN_final.png`，原图 `NN_src.<ext>`，同目录并列，`NN` 为轮内序号 01、02；
+  `_final` 就是「哪张是最终」的唯一答案，`_src` 是生成原图。
+- 订单目录不按角度拆分；角度只写在 `brief.json` / `manifest.json`。
+- `%TEMP%` / `/tmp` 只能作生成中转，逐张生成后立即 `Move` 进 `roundNN/` 并改名
+  `NN_src.<ext>`；流程结束前必须确认轮目录里没有缺图。
+- 中断、超预算、脚本报错都不得回滚：已生成图留在 `roundNN/`，
   `status.json` 记录 `state`、`phase`、`raw_count`、`last_error`。
 - 清理只能由用户明确要求后执行；`avatar_pipeline.py` 不删除任何订单文件。
 - `status.json` 至少含：`order_id`、`state`、`phase`、`created_at`、
   `updated_at`、`raw_count`、`export_count`、`last_error`。
-- 复盘时用 `raw/` + `out/manifest.json` 即可完整重现判定；
-  raw 缺失视为该单不合规，交付时要写明缺失原因。
+- 复盘时用 `roundNN/NN_src.*` + `manifest.json` 即可完整重现判定；
+  原图缺失视为该单不合规，交付时要写明缺失原因。
 
-### 8.1 目录
+**新旧结构差异（历史订单不迁移）**：
+
+| | 旧（仅历史订单保留） | 新（默认 `flat`） |
+|-|-|-|
+| 订单目录名 | `<YYYYMMDD-HHMMSS>-<slug>`（可含角度） | `<角色>-<NN>`，重名递增 |
+| 原图 | `<订单>/raw/round_XX/<angle>_v1_r1.jpg` | `<订单>/roundNN/NN_src.jpg` |
+| 成品 | `<订单>/out/crop/<id>_1024.png` | `<订单>/roundNN/NN_final.png` |
+| 放大/JPG | `out/export/png/2k`、`out/export/jpg` | 同目录 `NN_2k.png` / `NN_q88.jpg` |
+| manifest / 联系表 | `<订单>/out/manifest.json`、`out/contact_sheet.jpg` | `<订单>/manifest.json`、`contact_sheet.jpg` |
+| 报告 | `out/report.md` | 不生成（报告在对话里给） |
+
+`--layout legacy` 只用于复跑旧订单；新订单一律用默认 `flat`。
+
+### 8.1 目录（flat）
 
 ```
 <订单目录>/
@@ -882,23 +925,18 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 ├── prompts.json
 ├── rounds.json              # 轮次与累计预算台账
 ├── status.json
-├── raw/                     # 生成原图 v1_r1.jpg …（不改动、不删除）
-│   └── round_01/            # 第 1 轮原图（多轮时保留每轮历史）
-└── out/
-    ├── round_01/            # 第 1 轮裁切/导出/预览（多轮时保留每轮历史）
-    ├── crop/                # <id>_1024.png      默认 PNG 主图
-    ├── native/              # <id>_native_<px>.png 原生裁切母版
-    ├── preview/             # <id>_preview.png   方形预览（不再生成圆形遮罩）
-    ├── export/
-    │   ├── png/2k/          # <id>_2k.png
-    │   ├── png/4k/          # <id>_4k.png
-    │   └── jpg/             # <id>_1024_q88.jpg / <id>_2k_q88.jpg / <id>_4k_q88.jpg
-    ├── contact_sheet.jpg
-    ├── manifest.json
-    └── report.md
+├── manifest.json
+├── contact_sheet.jpg
+└── roundNN/                 # 每轮一个目录，完全平铺
+    ├── NN_src.<ext>
+    ├── NN_final.png
+    ├── NN_2k.png            # 可选
+    ├── NN_4k.png            # 可选
+    └── NN_q<q>.jpg          # 可选
 ```
 
-`id` = 原图文件名去扩展名。
+`NN` = 轮内序号（01、02…），不是原图文件名；原图改名后 manifest 用
+`r<round>-<NN>` 作为 `id`，`file` 记 `roundNN/NN_src.<ext>`。
 
 ### 8.2 manifest.json 字段
 
@@ -913,7 +951,8 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `meta.formats` | 实际导出的档位 |
 | `meta.jpg` | `{enabled, quality}` |
 | `meta.upscale` | `{method, available, detail_added, note}` |
-| `meta.budget` | `{limit, used, remaining, exceeded, source}`；`used` = `raw/` 实际张数 |
+| `meta.layout` | `flat`（默认）/ `legacy`（仅复跑旧单） |
+| `meta.budget` | `{limit, used, remaining, exceeded, source}`；`used` = 轮目录内原图实际张数 |
 | `meta.style_profile` / `meta.character` / `meta.angle_matrix` | 本次使用的档案 id 与路径 |
 | `meta.face_mode` | `faced` / `faceless`；决定指标集与角度判据 |
 | `meta.generation` | `{backend, reference_input_supported, mode, fallback, strength, identity_unverified}` |
@@ -926,7 +965,9 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `summary` | `total / pass / reject / best_total / contact_sheet` |
 | `items` | 每张图的完整记录 |
 
-另写出 `out/budget.json`，内容与 `meta.budget` 一致；超预算且未加 `--allow-over-budget` 时脚本直接退出（码 3），不评分不导出。
+flat 布局不再写 `report.md` 与 `budget.json`（预算写进 `manifest.meta.budget` 与
+`status.json`）；`legacy` 布局保留旧的 `out/budget.json` / `out/report.md`。
+超预算且未加 `--allow-over-budget` 时脚本直接退出（码 3），不评分不导出。
 
 `items[]` 关键字段：
 
@@ -940,7 +981,8 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `scores` | `face_quality`（含 `face_quality_parts`）、`composition`、style/emotion/anatomy 为 `null` |
 | `gates` | 各闸门布尔值；不可用能力为 `null`；含 `style` / `character` / `angle` / `canvas` / `content` / `content_input` |
 | `raw` | 原图侧记录：`content`（内容分析）、`content_gate`（原图内容闸门） |
-| `final_gate` | 成品侧重跑：`{gate_scope:"final_crop", gate, content}`；闸门判定以它为准 |
+| `raw_quality` | **原图生成质量分**（与交付无关）：`{scope:"generation", total, scores{face,composition,style,angle}, status:"qualified"/"unqualified"/"unreadable", threshold:60, reasons, note}`；不改变 final verdict，但交付前必须看它 |
+| `final_gate` | 成品侧重跑：`{gate_scope:"final_crop", gate, content}`；交付校验以它为准，但**不能抵消 raw 不合格** |
 | `style` | `{palette_colors, palette_top, saturation, edge_density, background_stddev, background_mode}` |
 | `style_check` | `{style_id, passed, checks, reasons}`；未传风格档案为 `null` |
 | `canvas` | `{width, height, aspect, square, frame_like, frame_bbox}` |
@@ -951,7 +993,7 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 | `thumb` | 96px 可读性分数与分量 |
 | `reasons` | 原因码数组 |
 | `detect` | 定位方式、`conf`、`eye_source`、`profile`、`eye_y`、`face_box`、`skin_coverage` |
-| `outputs` | 按格式分键：`png_1024` / `png_native` / `png_2k` / `png_4k` / `jpg_1024_q88` 等 |
+| `outputs` | 按格式分键（flat 文件名）：`png_1024` = `roundNN/NN_final.png`；可选 `png_2k` = `NN_2k.png`、`png_4k` = `NN_4k.png`、`jpg_1024_q88` = `NN_q88.jpg` |
 | `upscale` | `applied / method / tiers{tier:{size,factor,detail_added}}` |
 | `recheck` | 放大后复检：构图不变说明、眼睛复检、全幅锐度 |
 
