@@ -29,7 +29,7 @@ import sys
 from datetime import datetime
 
 SCHEMA = "avatar-rounds/1.0"
-DEFAULT_BUDGET = 6
+DEFAULT_BUDGET = 10
 SATISFACTIONS = ("satisfied", "unsatisfied")
 
 EXIT_OK = 0

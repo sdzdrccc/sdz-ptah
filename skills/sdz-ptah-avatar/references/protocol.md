@@ -16,7 +16,7 @@
 > **画布（硬性）**：画布与导出一律方形、满出血；禁止边框、圆形遮罩、装饰圈。
 > 提示词必须包含 `square canvas, no border, no frame, no circular mask, edge-to-edge`。
 >
-> **低成本模式（默认）**：每单生成预算 `--budget`，默认 **6** 张；每张生成都要计数，
+> **低成本模式（默认）**：每单生成预算 `--budget`，默认 **10** 张；每张生成都要计数，
 > 超预算必须停下并向用户确认，不能默默继续抽。量产单需用户明确同意后再调大。
 > 预算**按轮累计**（`rounds.json.budget_used`）：累计到上限即停，追加必须再次确认；
 > **不得静默超额**。
@@ -41,7 +41,7 @@
   "gender_source": "card",
   "angle": "profile_left",
   "angle_source": "default",
-  "budget": 6,
+  "budget": 10,
   "constraints": "不要文字、不要多人、不要明显多指",
   "confirm": {
     "confirmed": true,
@@ -69,7 +69,7 @@
 | `gender_source` | 否 | `user` / `card` / `unspecified`，由流水线补全 |
 | `angle` | 否 | `profile_left` / `profile_right`；缺失时按性别取默认（男左、女右、未指定左） |
 | `angle_source` | 否 | `default` / `user`；用户手动指定即为 `user` |
-| `budget` | 否 | 本单生成预算，默认 6；与 `--budget` 取更小值 |
+| `budget` | 否 | 本单生成预算，默认 10；与 `--budget` 取更小值 |
 | `constraints` | 否 | 追加的负面约束，编译进 prompt 的禁止项描述 |
 | `confirm` | 是（执行前） | 显式确认块；`confirmed` 必须为 `true`，否则流水线拒绝执行 |
 
@@ -92,7 +92,7 @@
 | 项 | 默认 | 可选 |
 |-|-|-|
 | 画质 | 1K（`1024`） | 1K / 2K / 4K |
-| 张数 | 2（上限为预算 6） | 1–6 |
+| 张数 | 2（上限为预算 10） | 1–10 |
 | 朝向 | 按性别（男左、女右、未指定左） | 朝左 / 朝右 |
 | 风格 | `tv-anime-cel` | 当前仅此一项 |
 | 输出 | 方形 PNG | 可加 JPG |
@@ -273,7 +273,7 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 当前角度 | 按 `brief.angle`：`profile_left` 或 `profile_right`；默认按性别规则，用户可覆盖 |
 | 首轮 | 默认 2 张（画质默认 1K）；必须完成确认门后才允许调用 |
 | 二轮补量 | 只在预算内、且用户同意后补；同一角度最多再 1 张 |
-| 单需求总预算 | `--budget`，默认 **6**；每张调用都计数，**按轮累计**，超预算停下确认 |
+| 单需求总预算 | `--budget`，默认 **10**；每张调用都计数，**按轮累计**，超预算停下确认 |
 | 轮次记录 | 每轮写 `rounds.json`（`round/count/directions[]/budget_used`），产物落 `raw/round_XX`、`out/round_XX`；历史轮次不覆盖 |
 | 预算落盘 | `status.json` 的 `budget{limit,used,remaining}` 每次生成后 +1；manifest 记录实际张数 |
 | 侧脸变体 | 需要重抽时，换「远眼不可见」的措辞（至少两种写法），不要原句连抽 |
@@ -346,9 +346,9 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
 {
   "schema": "avatar-rounds/1.0",
   "order_id": "20261122-153000-xiaozhi",
-  "budget_limit": 6,
-  "budget_used": 4,
-  "remaining": 2,
+  "budget_limit": 10,
+  "budget_used": 2,
+  "remaining": 8,
   "satisfaction": "unsatisfied",
   "rounds": [
     {

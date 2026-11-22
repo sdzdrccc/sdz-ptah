@@ -1,6 +1,6 @@
 ---
 name: sdz-ptah-avatar
-description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 6 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left- and right-facing profiles; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar and Satoshi 小智. Not for scene art or real-person photos.
+description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left- and right-facing profiles; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar and Satoshi 小智. Not for scene art or real-person photos.
 ---
 
 # SDZ Ptah Avatar（普塔头像）
@@ -47,7 +47,7 @@ description: Generate anime avatars from a style profile + character card + angl
   流水线只产出方形预览，不再生成圆形遮罩图。
 - **截断判定替代留边阈值**：贴边但主体完整放行；只有贴边连续主体段过宽且向内延续
   才判 `subject_cut`。顶部/左/右为硬门槛，底部胸像裁切只记录。
-- **低成本模式是默认**：`--budget` 默认 **6** 张。每张生成都计数并写进
+- **低成本模式是默认**：`--budget` 默认 **10** 张。每张生成都计数并写进
   `status.json.budget` 与 `rounds.json.budget_used`；预算**按轮累计**，
   到上限就停，必须先问用户是否追加，不许默默抽，也不许静默超额。
 - 2K/4K 只能靠放大，放大不新增细节，必须在交付里写明。
@@ -90,7 +90,7 @@ description: Generate anime avatars from a style profile + character card + angl
   "updated_at": "2026-11-22 15:31:20",
   "raw_count": 0,
   "export_count": 0,
-  "budget": {"limit": 6, "used": 0, "remaining": 6},
+  "budget": {"limit": 10, "used": 0, "remaining": 10},
   "last_error": null
 }
 ```
@@ -108,7 +108,7 @@ description: Generate anime avatars from a style profile + character card + angl
    `state=awaiting_input`。
 
 字段见 `references/protocol.md` 第 1 节。默认值：`size=1024`、`count=2`
-（上限为预算）、`budget=6`、`view=profile`。
+（上限为预算）、`budget=10`、`view=profile`。
 
 **朝向默认规则**：
 
@@ -158,7 +158,7 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 - 首轮张数以 `brief.count` 为准（默认 2，上限为预算）；需要变体时最多再 1 张。
 - **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true` 才可调用
   `GenerateImage`；没有确认块就回第二段确认页，不许直接抽。
-- 整单不超过 `--budget`（默认 6），且**按轮累计**。生成前先跑
+- 整单不超过 `--budget`（默认 10），且**按轮累计**。生成前先跑
   `rounds.py --check`；余额 ≤0 必须停下说明「预算用尽」并等用户决定是否追加，
   追加确认后才用 `--budget N` 调大，不许静默超额。
 - 调用前在 `status.json` 记 `budget.limit`；每成功生成一张，`used += 1`、
@@ -188,12 +188,12 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
   --character "$skill\references\characters\satoshi.json" `
   --angles "$skill\references\angles.json" `
   --checklist "<订单目录>\checklist.json" `
-  --budget 6
+  --budget 10
 ```
 
 - `--formats` 取 `1024` / `2k` / `4k` 的逗号组合；`--jpg` 额外导出压缩版，
   `--jpg-quality` 默认 88。
-- `--budget` 默认 6；脚本用 `raw/` 实际张数做账，超预算且未加
+- `--budget` 默认 10；脚本用 `raw/` 实际张数做账，超预算且未加
   `--allow-over-budget` 时直接退出（码 3），不评分不导出。
 - 不传 `--style` / `--character` / `--checklist` 时对应闸门为 `null`；
   风格/角色单的交付不接受 `null`。

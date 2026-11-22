@@ -8,7 +8,7 @@
 
 - 确认词必须包含：确认 / 生成 / confirm（大小写不敏感），否则拒绝写入。
 - --source card 表示确认卡片回传，记录 source=confirmation_card；默认 chat_message。
-- 写入前会补齐默认值（画质 1024 / 张数 2 / 朝向按性别 / 预算 6）并校验。
+- 写入前会补齐默认值（画质 1024 / 张数 2 / 朝向按性别 / 预算 10）并校验。
 - 写入 confirm.confirmed=true 后，avatar_pipeline.py 才允许评分与导出。
 """
 
@@ -43,7 +43,7 @@ def main():
                         help="可选：写入/覆盖性别")
     parser.add_argument("--angle", choices=list(ap.ANGLE_IDS), default=None,
                         help="可选：写入/覆盖朝向")
-    parser.add_argument("--budget", type=int, default=6, help="预算上限（默认 6）")
+    parser.add_argument("--budget", type=int, default=10, help="预算上限（默认 10）")
     parser.add_argument("--check", action="store_true", help="只检查是否已确认，不写入")
     args = parser.parse_args()
 
