@@ -20,7 +20,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -41,23 +41,34 @@ EYE_AREA_MAX = 0.015    # 占采样画面比例上限，排除大块背景/衣�
 # 构图 / 评分（与方案文档 1.3、3.4 一致）
 TARGET_RATIOS = [0.56, 0.62, 0.68]   # 三档候选裁切的目标脸占比
 EYE_TARGET = 0.26                    # 眼睛在裁切图中的目标纵向位置
-MARGIN_MIN = 0.03                    # 硬门槛：脸框距裁切边最小距离
+MARGIN_MIN = 0.025                   # 硬门槛：正样本顶部发丝贴边约 2.9%，故由 3% 放宽到 2.5%
 MARGIN_BUILD = 0.05                  # 裁切时预留的余量（略高于门槛）
 CHIN_MIN = 0.05
 CHIN_BUILD = 0.06
 
-FACE_RATIO_MIN, FACE_RATIO_MAX = 0.45, 0.78
+FACE_RATIO_MIN, FACE_RATIO_MAX = 0.34, 0.82
 EYE_MIN, EYE_MAX = 0.12, 0.36
-# 侧脸单眼走「头部包围盒」定位，箱体含头发/帽子，眼位天然比正脸低；
-# 实测交付图眼位 0.43~0.46，故单列一套更宽的闸门，不放宽正脸闸门。
-PROFILE_EYE_MIN, PROFILE_EYE_MAX = 0.28, 0.50
-PROFILE_EYE_TARGET = 0.44
+# 侧脸单眼走「头部包围盒」定位，箱体含头发/帽子，眼位天然比正脸低。
+# 以两张人工认可的正样本校准：眼位 0.391 / 0.409，共同区间取 0.32~0.46，
+# 目标 0.40。旧档 0.28~0.50 过宽、目标 0.44 偏下，会把「眼位偏低」的图放过。
+PROFILE_EYE_MIN, PROFILE_EYE_MAX = 0.32, 0.46
+PROFILE_EYE_TARGET = 0.40
 CONF_MIN = 0.40
 THUMB_MIN = 0.35
 BLUR_MIN = 8.0                       # 面部锐度下限（LOG 前的原始 stddev）
 
-W_FACE_QUALITY = 30
-W_COMPOSITION = 25
+# 评分权重（校准后）：构图占 60、面部质量 40；构图内部以眼位为主，
+# 脸占比只作弱约束（侧脸头框本身含头发，面积噪声大）。
+W_FACE_QUALITY = 40
+W_COMPOSITION = 60
+W_RATIO, W_EYE, W_MARGIN = 0.10, 0.65, 0.25
+RATIO_TARGET = 0.62
+RATIO_TOL = 0.20
+EYE_TOL = 0.14                       # 正脸眼位容差
+PROFILE_EYE_TOL = 0.08               # 侧脸眼位是主判据，收得更紧
+MARGIN_TOL = 0.04
+COST_TOL = 0.10
+COST_PENALTY = 10
 
 # 导出档位：均在 1920 原生之上按需放大
 SIZE_TIERS = {"1024": 1024, "2k": 2048, "4k": 4096}
@@ -142,12 +153,25 @@ def _skin_map(img, work_w=240, cell=4, ratio=0.35):
     return grid, cw, ch, comps, W / float(w)
 
 
+def _face_skin_component(comps):
+    """在肤色连通块里选「脸块」：面积达到最大块 45% 以上且最靠上的一块。
+
+    侧身/半身头像里，肩颈与面部常被同一肤色阈值判成相邻大块；
+    只取最大块会把脸框落到肩颈上（眼线随之下移），因此加入「靠上」规则。
+    """
+    if not comps:
+        return None
+    max_area = len(comps[0])
+    cands = [c for c in comps if len(c) >= 0.45 * max_area]
+    return min(cands, key=lambda cells: min(y for _, y in cells))
+
+
 def _skin_fallback(img):
     """皮肤区域回退定位：取最大皮肤块的上部主体作为脸框。"""
     grid, cw, ch, comps, scale = _skin_map(img)
-    if not comps:
+    cells = _face_skin_component(comps)
+    if cells is None:
         return None
-    cells = comps[0]
     cell = 4
     xs = [c[0] for c in cells]
     ys = [c[1] for c in cells]
@@ -213,7 +237,7 @@ def _sclera_eye(img, skin_box):
 
     best = None
     for cells in _grid_components(marked, cw, ch):
-        if not (6 <= len(cells) <= 0.02 * cw * ch):
+        if not (12 <= len(cells) <= 0.05 * cw * ch):
             continue
         xs = [c[0] for c in cells]
         ys = [c[1] for c in cells]
@@ -223,13 +247,15 @@ def _sclera_eye(img, skin_box):
         cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         if not (0.55 <= bw / max(1.0, bh) <= 2.6):
             continue
-        if not (bx0 + 0.03 * bw_box <= cx <= bx1 - 0.03 * bw_box):
+        rel_x = (cx - bx0) / bw_box
+        if not (0.08 <= rel_x <= 0.82):
             continue
-        # 眼白在肤色框上部；再往下多半是牙齿或衣领
+        # 眼白在肤色框上部；放宽到 60% 以覆盖四分之三侧脸，
+        # 再往下多半是牙齿或衣领
         rel_y = (cy - by0) / bh_box
-        if not (0.0 <= rel_y <= 0.40):
+        if not (0.0 <= rel_y <= 0.60):
             continue
-        if not (0.03 * bw_box <= bw <= 0.30 * bw_box):
+        if not (0.07 * bw_box <= bw <= 0.30 * bw_box):
             continue
         # 眼白周围必须有深色瞳孔/描线，排除高光与白帽檐
         ex0, ey0 = int(max(0, x0 - bw * 0.3)), int(max(0, y0 - bh * 0.3))
@@ -344,14 +370,72 @@ def _profile_geometry(img, cells, scale, eye):
     return left, right, top, chin
 
 
+def _content_top(img, cx, head_w):
+    """在头部横向范围内，返回非背景内容的最上沿 y（全分辨率）。"""
+    W, H = img.size
+    work_w = 240
+    w = min(work_w, W)
+    h = int(round(H * w / float(W)))
+    small = img.convert("RGB").resize((w, h), Image.BILINEAR)
+    px = small.load()
+    corners = [(3, 3), (w - 4, 3), (3, h - 4), (w - 4, h - 4)]
+    bg = [sum(px[x, y][i] for x, y in corners) / 4.0 for i in range(3)]
+    sx = W / float(w)
+    x0 = int(clamp((cx - 0.55 * head_w) / sx, 0, w - 1))
+    x1 = int(clamp((cx + 0.55 * head_w) / sx, 1, w))
+    for y in range(h):
+        for x in range(x0, x1):
+            r, g, b = px[x, y]
+            d = ((r - bg[0]) ** 2 + (g - bg[1]) ** 2 + (b - bg[2]) ** 2) ** 0.5
+            if d > 42:
+                return y * sx
+    return None
+
+
+def _profile_head(img, cells, scale):
+    """无眼白锚点时：肤色块上部定头宽，内容上沿定头顶，按比例估眼线。"""
+    W, H = img.size
+    xs = [c[0] for c in cells]
+    ys = [c[1] for c in cells]
+    bx0 = min(xs) * 4 * scale
+    by0 = min(ys) * 4 * scale
+    comp_h = (max(ys) - min(ys) + 1) * 4 * scale
+
+    rows = {}
+    for (gx, gy) in cells:
+        lo, hi = rows.get(gy, (10 ** 9, -1))
+        rows[gy] = (min(lo, gx), max(hi, gx))
+    top_limit = by0 + 0.55 * comp_h
+    spans = [(gy, lo, hi) for gy, (lo, hi) in rows.items()
+             if gy * 4 * scale <= top_limit]
+    if not spans:
+        return None
+    _, lo, hi = max(spans, key=lambda t: t[2] - t[1])
+    head_w = (hi - lo + 1) * 4 * scale
+    cx = (lo + hi + 1) * 2 * scale
+    if head_w < 0.18 * min(W, H):
+        return None
+
+    head_h = head_w * 1.02
+    top = by0
+    ct = _content_top(img, cx, head_w)
+    if ct is not None:
+        top = min(top, max(ct, by0 - 0.06 * H))
+    eye_y = top + 0.55 * head_h
+    box = (clamp(cx - head_w / 2.0, 0, W - 4), clamp(top, 0, H - 4),
+           clamp(head_w, 4, W), clamp(head_h, 4, H))
+    return {"box": box, "eye_y": eye_y, "eyes": [], "conf": 0.42,
+            "candidates": 1, "method": "profile-head",
+            "eye_source": "estimated", "profile": True}
+
+
 def _profile_fallback(img):
     """单眼侧脸回退：肤色块 + 眼白锚点 + 头部内容包围盒。"""
     W, H = img.size
     grid, cw, ch, comps, scale = _skin_map(img)
-    if not comps:
+    cells = _face_skin_component(comps)
+    if cells is None:
         return None
-
-    cells = comps[0]
     xs = [c[0] for c in cells]
     ys = [c[1] for c in cells]
     bx0, bx1 = min(xs) * 4, (max(xs) + 1) * 4
@@ -376,7 +460,9 @@ def _profile_fallback(img):
     skin_box = (bx0 * scale, by0 * scale, bx1 * scale, by1 * scale)
     eye = _sclera_eye(img, skin_box)
     if not eye:
-        return None
+        # 白色皮肤的角色（如浅色侧脸）眼白与面部同色，找不到眼白锚点；
+        # 改用头部轮廓按比例估眼线，仍走侧脸闸门，不伪装成高可信度。
+        return _profile_head(img, cells, scale)
 
     geo = _profile_geometry(img, cells, scale, eye["center"])
     if not geo:
@@ -508,12 +594,17 @@ def detect_face(img):
                 cx = (eyes[0][0] + eyes[1][0]) / 2.0
                 fw = 2.00 * d
                 fh = 1.65 * d
-                top = eye_y - 0.42 * fh
-                box = (clamp(cx - fw / 2.0, 0, W - 4), clamp(top, 0, H - 4),
-                       clamp(fw, 4, W), clamp(fh, 4, H))
-                detected = {"box": box, "eye_y": eye_y, "eyes": eyes,
-                            "conf": 0.55, "method": "eye-pair",
-                            "eye_source": "detected", "profile": False}
+                raw_top = eye_y - 0.42 * fh
+                # 合理性校验：头顶被推出画面或脸框高过整幅 85%，
+                # 说明配到的不是双眼（常见于把头发/耳饰高光配成一对），
+                # 放弃双眼锚点，让侧脸/肤色回退接手。
+                if raw_top >= -0.02 * H and fh <= 0.85 * H:
+                    top = raw_top
+                    box = (clamp(cx - fw / 2.0, 0, W - 4), clamp(top, 0, H - 4),
+                           clamp(fw, 4, W), clamp(fh, 4, H))
+                    detected = {"box": box, "eye_y": eye_y, "eyes": eyes,
+                                "conf": 0.55, "method": "eye-pair",
+                                "eye_source": "detected", "profile": False}
 
     skin = _skin_fallback(img)
     multi = _count_faces(img)
@@ -626,6 +717,17 @@ def build_crops(img, face):
         cost = (abs(left - ideal_left) + abs(top - ideal_top)) / s
         out.append({"box": (left, top, left + s, top + s), "target": target,
                     "cost": round(cost, 4)})
+
+    # 全幅候选：已经紧构图的原图不应被二次放大裁切。
+    # 代价按同一套理想位置计算，避免「保留原图」变成无条件满分。
+    s = float(min(W, H))
+    ideal_left = fx + fw / 2.0 - s / 2.0
+    ideal_top = eye_y - eye_target * s
+    left = clamp(ideal_left, 0, W - s)
+    top = clamp(ideal_top, 0, H - s)
+    cost = (abs(left - ideal_left) + abs(top - ideal_top)) / s
+    out.append({"box": (left, top, left + s, top + s), "target": "full",
+                "cost": round(cost, 4)})
     return out
 
 
@@ -669,13 +771,14 @@ def score_crop(img, crop, face):
     margins = [fx - left, right - (fx + fw), fy - top, bottom - (fy + fh)]
     margin = min(margins) / s
 
-    ratio_score = clamp(1 - abs(face_ratio - 0.62) / 0.20, 0, 1)
+    ratio_score = clamp(1 - abs(face_ratio - RATIO_TARGET) / RATIO_TOL, 0, 1)
     eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
-    eye_score = clamp(1 - abs(eye_center_y - eye_target) / 0.14, 0, 1)
-    margin_score = clamp(margin / 0.06, 0, 1)
+    eye_tol = PROFILE_EYE_TOL if face.get("profile") else EYE_TOL
+    eye_score = clamp(1 - abs(eye_center_y - eye_target) / eye_tol, 0, 1)
+    margin_score = clamp(margin / MARGIN_TOL, 0, 1)
     cost = crop.get("cost", 0.0)
-    composition = 100 * (0.45 * ratio_score + 0.35 * eye_score + 0.20 * margin_score)
-    composition -= 20 * clamp(cost / 0.10, 0, 1)   # 补偿代价扣分
+    composition = 100 * (W_RATIO * ratio_score + W_EYE * eye_score + W_MARGIN * margin_score)
+    composition -= COST_PENALTY * clamp(cost / COST_TOL, 0, 1)   # 补偿代价扣分
     composition = clamp(composition, 0, 100)
 
     sharp = sharpness(img, face["box"])
@@ -896,10 +999,17 @@ def main():
             continue
 
         best = None
+        best_any = None
         for cand in build_crops(img, face):
             sc = score_crop(img, cand, face)
-            if best is None or sc["total"] > best["total"]:
+            if best_any is None or sc["total"] > best_any["total"]:
+                best_any = sc
+            # 优先交付「构图闸门全过」的候选；已紧构图的原图用全幅候选，
+            # 不再为了凑目标脸占比二次放大裁切。
+            if not sc["reasons"] and (best is None or sc["total"] > best["total"]):
                 best = sc
+        if best is None:
+            best = best_any
 
         left, top, right, bottom = [int(round(v)) for v in best["box"]]
         s = right - left
@@ -986,7 +1096,7 @@ def main():
         for j in range(i + 1, len(results)):
             if "ahash" not in results[j]:
                 continue
-            if hamming(results[i]["ahash"], results[j]["ahash"]) <= 4:
+            if hamming(results[i]["ahash"], results[j]["ahash"]) <= 3:
                 loser = j if results[i]["total"] >= results[j]["total"] else i
                 results[loser]["verdict"] = "REJECT"
                 if "duplicate" not in results[loser]["reasons"]:
@@ -1035,7 +1145,7 @@ def main():
             "unavailable": ["ocr_text", "nsfw", "emotion", "style_embedding", "anatomy",
                             "real_esrgan_superres"],
             "note": "无 OCR/NSFW/情绪/风格/解剖/超分模型，对应闸门记为 null，不参与判定；"
-                    "分数按可用维度(face_quality 30 + composition 25)归一化",
+                    "分数按可用维度(face_quality 40 + composition 60)归一化",
         },
         "summary": {
             "total": len(results),
@@ -1072,8 +1182,8 @@ def main():
             ", ".join(r.get("reasons", [])) or "-"))
     lines += ["", "原因码释义：" + "；".join("%s=%s" % (k, v) for k, v in REASON_LABEL.items()),
               "",
-              "> 构图三项（脸占比 / 眼睛位置 / 留边）是裁切补偿后的结果，按设计会收敛到目标值，",
-              "> 因此图与图之间差异很小；排序主要由面部质量（锐度 / 对称 / 曝光）与裁切补偿代价决定。",
+              "> 已紧构图的原图会选中「全幅」候选，不再为凑目标脸占比二次放大裁切；",
+              "> 排序以眼位为主（构图 60%、其中眼位 65%），脸占比只作弱约束。",
               "> 风格、情绪、解剖三项无本地模型，记 null，不参与总分。"]
     with open(os.path.join(out_dir, "report.md"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))

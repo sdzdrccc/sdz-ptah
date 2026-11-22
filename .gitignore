@@ -6,6 +6,9 @@
 __pycache__/
 *.pyc
 
+# 本地校准基准图：现成动漫作品角色图，仅作阈值校准，不进公开仓库
+ai-anime-avatar/基准/
+
 # 生成的验证输出：体积大（单轮约 35 MB）且可由 avatar_pipeline.py 完整复现
 ai-anime-avatar/verify/out/
 ai-anime-avatar/verify/out_global/
