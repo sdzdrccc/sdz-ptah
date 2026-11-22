@@ -312,7 +312,7 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 侧脸验收 | 每张先放大到 800px 看鼻梁后方；出现第二只眼/眼白即弃用，不进入评分 |
 | 重抽规则 | 同一角度连续 2 次不满足 `subject_cut` / `angle_mismatch` / `angle_undetermined` 即停，先报告再决定 |
 | 确认门 | `brief.confirm.confirmed` 必须为 `true`；未确认不得调用 `GenerateImage`，流水线直接退出码 4 |
-| 命名 | `raw/<angle>_v1_r1.jpg`，如 `profile_left_v1_r1.jpg` 或 `profile_right_v1_r1.jpg`；判定以 `brief.angle` / `--expected-angle` 为准，文件名只作标识 |
+| 命名 | `raw/<angle>_v<variant>_r<round>.jpg`，如 `profile_left_v1_r1.jpg`；`v` 是变体、`r` 是轮次（去重按 `r` 分组）；判定以 `brief.angle` / `--expected-angle` 为准，文件名只作标识 |
 | 落盘 | 先写临时中转路径，生成后逐张 `Move` 到 `<订单目录>/raw/`；不得留在 `%TEMP%` |
 | 失败处理 | 文件缺失或打不开记为该次失败，不进入评分；已生成图与 `status.json` 必须保留 |
 
@@ -613,17 +613,25 @@ total = (40 × face_quality + 60 × composition) ÷ 100
 
 1. `--round <值>` → `round_source=cli`，最高优先级，覆盖下方全部推断；
 2. `brief.round` 字段 → `round_source=brief`；
-3. 文件名里的 `vN` / `roundN` → `round_source=filename`（如 `profile_left_v1_r1` → v1）；
-4. 父目录名里的 `roundN` / `vN` → `round_source=dir`（如 `raw/round_02` → round02）。
+3. 文件名里的 `rN` / `roundN` → `round_source=filename`（如 `profile_left_v1_r1` → r1）；
+4. 父目录名里的 `roundN` / `rN` → `round_source=dir`（如 `raw/round_02` → r2）；
+5. 都没有 → `__batch__` / `round_source=unknown`，见下方告警。
 
-- 取值先规范化再比较：`3` / `v3` → `v3`，`round3` / `r3` → `round3`，
-  保证 `--round 3` 与文件名 `v3` 能对齐。
-- **四者都取不到时不再静默把整批当同一轮**：控制台打印
+**命名约定**：`<angle>_v<variant>_r<round>`，如 `profile_left_v1_r1.jpg`。
+
+- `v` 是**变体**：同一轮内不同写法的编号（v1–v4），不参与轮次识别；
+- `r` 是**轮次**：第几次出图/补量（r1、r2…），去重按它分组；
+- 同时出现 `v` 与 `r` 时以 `r` 为准；只有 `v` 没有 `r` 时**不拿 v 顶替**，
+  继续退到目录名，目录名也没有才告警 unknown。
+- 取值先规范化再比较：`1` / `r1` / `round_01` 统一为 `r1`，
+  保证 `--round 1`、`brief.round="round_1"` 与文件名 `r1` 能对齐。
+- **四级都取不到时不再静默把整批当同一轮**：控制台打印
   「WARNING: 轮次未知（N/M 张…），已按单轮处理，可能误判重复」，
   并在 manifest 每张图记 `round: "__batch__"`、`round_source: "unknown"`。
   仍继续执行（单轮回退最保守），但输出必须带明显告警，由人工确认或补 `--round`。
 - **跨轮（含历史版本）互不判 duplicate，历史版本一律保留**；同一轮内不同目标
-  角度也不是重复候选（左右侧脸/正脸各自独立）。
+  角度也不是重复候选（左右侧脸/正脸各自独立）；同一轮的**不同变体**是重复候选，
+  跨变体近似重复会被判 `duplicate`（例如同一 `r1` 下的 `v1` 与 `v2`）。
 - 阈值由 4 收到 3：统一裁切后不同变体可能落到距离 4，属于误判，不是重复图。
 
 ### 5.4 缩图可读性

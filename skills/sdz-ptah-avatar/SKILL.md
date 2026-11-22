@@ -224,9 +224,11 @@ brief 写 `generation` 块，脚本先做后端能力检测。
   风格/角色单的交付不接受 `null`。
 - `--angles` 不传时默认读 `references/angles.json`（不再跳过角度闸门）。
 - `--round <值>` 显式指定本批轮次，优先级最高；缺省读 `brief.round`，再按文件名
-  `vN`/`roundN`、父目录名推断。四者都取不到时打印
-  「轮次未知……已按单轮处理，可能误判重复」，manifest 记 `round_source=unknown`；
-  去重仍只对「同轮 + 同目标角度」生效，跨轮不互判。
+  `rN`/`roundN`、父目录名推断。命名约定 `<angle>_v<variant>_r<round>`：`v` 是变体、
+  `r` 是轮次；只有 `v` 没有 `r` 时不拿 `v` 顶替，继续退到目录名。
+  四级都取不到时打印「轮次未知……已按单轮处理，可能误判重复」，manifest 记
+  `round_source=unknown`；去重仍只对「同轮 + 同目标角度」生效，跨轮不互判，
+  同一轮的跨变体近似重复会被判 `duplicate`。
 - 画布闸门始终生效（方形 + 无边框），不依赖是否传风格档案。
 - 未启用角度（`reserved`）传入 `--expected-angle` 会直接 `angle_mismatch`，不是 `null`。
 - 带 `--brief` 但缺少 `confirm.confirmed=true`：脚本直接退出码 4，不评分不导出。

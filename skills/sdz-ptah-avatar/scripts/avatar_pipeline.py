@@ -1608,46 +1608,45 @@ def hamming(a, b):
     return bin(a ^ b).count("1")
 
 
-_ROUND_V = re.compile(r"(?:^|[_-])v(\d+)(?:[_-]|$)", re.I)
-_ROUND_N = re.compile(r"(?:^|[_-])round[_-]?(\d+)(?:[_-]|$)", re.I)
+_ROUND_N = re.compile(r"(?:^|[_-])round[_-]?(\d+)(?=[_.-]|$)", re.I)
+_ROUND_R = re.compile(r"(?:^|[_-])r[_-]?(\d+)(?=[_.-]|$)", re.I)
 
 
 def _canon_round(value):
-    """轮次值规范化，让 --round 3、brief.round "v3"、文件名 v3 可对齐。"""
+    """轮次值规范化：1 / r1 / round_01 统一为 r1；vN 只当变体，不当轮次。"""
     if value is None:
         return None
     v = str(value).strip()
     if not v:
         return None
-    m = re.fullmatch(r"[vV]\s*(\d+)", v)
-    if m:
-        return "v" + m.group(1)
     m = re.fullmatch(r"(?:round|r)[\s_-]*(\d+)", v, re.I)
     if m:
-        return "round" + m.group(1)
+        return "r" + str(int(m.group(1)))
     if re.fullmatch(r"\d+", v):
-        return "v" + v
+        return "r" + str(int(v))
     return v.lower()
 
 
 def resolve_round(name, path, cli_round=None, brief_round=None):
-    """返回 (轮次键, 来源)。优先级：--round > brief.round > 文件名 > 父目录。
+    """返回 (轮次键, 来源)。优先级：--round > brief.round > 文件名 rN/roundN > 父目录。
 
-    都取不到时返回 ("__batch__", "unknown")，由调用方打印警告，不再静默当同轮。
+    命名约定 <angle>_v<variant>_r<round>：vN 只是变体标识，不参与轮次识别；
+    同时出现 v 与 r 时以 r 为准；只有 v 时继续退到目录名，不拿 v 顶替。
+    都取不到时返回 ("__batch__", "unknown")，由调用方打印警告。
     """
     for value, source in ((cli_round, "cli"), (brief_round, "brief")):
         key = _canon_round(value)
         if key:
             return key, source
-    for pat, prefix in ((_ROUND_V, "v"), (_ROUND_N, "round")):
+    for pat in (_ROUND_N, _ROUND_R):
         m = pat.search(name)
         if m:
-            return prefix + m.group(1), "filename"
+            return "r" + str(int(m.group(1))), "filename"
     parent = os.path.basename(os.path.dirname(os.path.abspath(path)))
-    for pat, prefix in ((_ROUND_N, "round"), (_ROUND_V, "v")):
+    for pat in (_ROUND_N, _ROUND_R):
         m = pat.search(parent)
         if m:
-            return prefix + m.group(1), "dir"
+            return "r" + str(int(m.group(1))), "dir"
     return "__batch__", "unknown"
 
 
