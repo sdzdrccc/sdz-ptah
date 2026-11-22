@@ -83,8 +83,9 @@ description: Generate anime avatars from a style profile + character card + angl
 - **无脸不再直接判死**：`no_face` 先走头部/轮廓回退；回退也失败才记
   `locate_failed`（定位失败，不是构图不合格）。
 - **低成本模式是默认**：`--budget` 默认 **10** 张。每张生成都计数并写进
-  `status.json.budget` 与 `rounds.json.budget_used`；预算**按轮累计**，
-  到上限就停，必须先问用户是否追加，不许默默抽，也不许静默超额。
+  `status.json.budget` 与 `rounds.json.budget_used`；预算**按当前订单累计**，
+  历史订单的图片不累加，到上限就停，必须先问用户是否追加，不许默默抽，
+  也不许静默超额。
 - 2K/4K 只能靠放大，放大不新增细节，必须在交付里写明。
 - 缺少 OCR / NSFW / 情绪 / 风格 / 解剖 / 超分模型时，对应闸门记为 `null`，
   不得当成「通过」，也不得口头补分。
@@ -94,17 +95,19 @@ description: Generate anime avatars from a style profile + character card + angl
 
 ## 订单落盘（硬性要求，先做）
 
-每单只有一个目录，所有图片平铺，靠文件名区分，不建任何子目录：
+**一个角色一个目录**，所有订单共用同一个目录，所有图片平铺，靠文件名区分：
 
 ```text
-<订单根>/satoshi-01/          # 短名 <角色>-<NN>，不再带时间戳/角度
-├── brief.json
-├── manifest.json             # 每张图的 round/variant/angle/format + 两类评分
-├── contact_sheet.jpg         # 整个订单一张联系表
-├── rounds.json               # 轮次元数据（不放图片）
+<订单根>/satoshi/             # 目录名 = 角色 slug，不再有 -01/-02
+├── brief.json                # 当前订单需求单
+├── brief-20261122-100000.json  # 历史订单 brief 归档（新单不覆盖）
+├── manifest.json             # 多单累积：items 按 order_id 归属
+├── rounds.json               # orders[] + rounds[]，按 order_id 区分
 ├── status.json
 ├── prompts.json
 ├── checklist.json
+├── satoshi-avatar-1-2-sheet.jpg   # 第一单联系表（按订单命名，不覆盖）
+├── satoshi-avatar-3-4-sheet.jpg   # 第二单联系表
 ├── satoshi-avatar-1.png      # 1024 成品（无后缀 = 最终交付）
 ├── satoshi-avatar-1-src.jpg  # 原图
 ├── satoshi-avatar-1-2k.png   # 仅用户要 2K 时
@@ -112,19 +115,30 @@ description: Generate anime avatars from a style profile + character card + angl
 ├── satoshi-avatar-1-q88.jpg  # 仅用户要 JPG 时
 ├── satoshi-avatar-2.png
 ├── satoshi-avatar-2-src.jpg
-├── satoshi-avatar-3.png      # 第 2 轮继续用 3、4，不重置
+├── satoshi-avatar-3.png      # 下一单继续用 3、4，不重置
 └── satoshi-avatar-3-src.jpg
 ```
 
-- **一个订单只有一个目录，图片全部平铺**：不建 `round01/`、`raw/`、`out/`、`crop/`、
-  `native/`、`png/2k/`、`export/` 等任何子目录；规格与格式只靠文件名后缀区分。
+- **一个角色一个目录**：目录名默认取角色 slug（`satoshi/`），同一角色后续所有订单
+  都进这个目录；不再递增 `-01`/`-02`，不再新建第二层。
+- **目录内完全平铺**：不建 `round01/`、`raw/`、`out/`、`crop/`、`native/`、
+  `png/2k/`、`export/` 等任何子目录；规格与格式只靠文件名后缀区分。
 - 命名统一 `<前缀>-avatar-<N>`：成品无后缀，原图 `-src`，规格 `-2k` / `-4k` / `-q<q>`。
-- `N` 在**整个订单内连续递增，跨轮不重置**：第 1 轮 1、2，第 2 轮就是 3、4。
-- 前缀默认取角色 slug（`satoshi`），可用 `--prefix` 自定义。
+- **编号跨订单连续**：新订单扫描目录内已有最大编号，从下一个继续（已有 1–4，下次从 5 开始），
+  不覆盖、不重置。前缀默认取角色 slug（`satoshi`），可用 `--prefix` 自定义。
+- **订单靠 `order_id` 区分**：每次下单生成 `YYYYMMDD-HHMMSS` 与 `ordered_at`，
+  写进 `brief.json`、`rounds.json.orders[]` 与 `manifest.meta`；`rounds.json` 的
+  `rounds[]` 每条也带 `order_id`，历史轮次不覆盖。
+- **新订单不覆盖旧记录**：新单开始时旧 `brief.json` 归档为 `brief-<旧order_id>.json`；
+  `manifest.json` 合并保留未在本次处理的旧 items；`rounds.json` 追加 `orders[]`。
+- **预算只算当前订单**：`avatar_pipeline.py --budget` 与 `rounds.py --check` 都只统计
+  当前 `order_id` 的图片/轮次，历史订单的图片不累加、不吃新单预算。
+- **联系表按订单生成**：`<前缀>-avatar-<起>-<止>-sheet.jpg`（本单编号最小/最大），
+  后一单不覆盖前一单；旧的通用 `contact_sheet.jpg` 只在无编号（legacy）时使用。
 - **轮次只存元数据**：`brief.round`、`rounds.json` 记录每轮与每张图属于第几轮；
   文件名与目录都不带轮次。`--round` 仍是最高优先级。
-- 订单目录名默认 `<角色>-<NN>`：`rounds.py --new-order --root <根> --character satoshi`
-  自动分配并在重名时递增；只有用户明确要求唯一性时才加 `--stamp`（`-MMDD-HHMM`）。
+- 订单目录名默认角色 slug：`rounds.py --new-order --root <根> --character satoshi`
+  复用 `<根>/satoshi`，只切换订单；不再加时间戳或序号。
 - **不再按角度拆订单目录**：角度只写在 `brief.json` / `manifest.json` 里。
 - 订单根目录：用户指定优先；未指定用 `<当前工作区>/avatar-orders/`。
 - `%TEMP%`、`/tmp` 只能做生成中转：生成后立刻 `Move` 到订单目录，再跑评分。
@@ -139,7 +153,8 @@ description: Generate anime avatars from a style profile + character card + angl
 
 ```json
 {
-  "order_id": "satoshi-01",
+  "order_id": "20261122-173000",
+  "ordered_at": "2026-11-22 17:30:00",
   "state": "running",
   "phase": "generate",
   "created_at": "2026-11-22 15:30:00",
@@ -155,6 +170,9 @@ description: Generate anime avatars from a style profile + character card + angl
 
 ### 1. 第一段：收输入（不调用生成工具）
 
+先确定订单目录：`rounds.py --new-order --root <根> --character <角色 slug>`，
+固定复用 `<根>/<角色 slug>` 并切换 `order_id`；同一角色后续订单不再新建目录。
+
 `/sdz-ptah-avatar` 或普通请求触发后，只做三件事：
 
 1. 读会话里的参考图（复制进订单 `refs/`）与文字说明；参考图**默认只读特征**——
@@ -162,7 +180,8 @@ description: Generate anime avatars from a style profile + character card + angl
    不支持时不得假装已使用参考图；
 2. 选风格（默认 `tv-anime-cel`；无脸/皮套用 `realistic-armor`）与角色卡
    （有则用，无则按描述建临时卡；无脸角色卡写 `face_mode=faceless`）；
-3. 解析性别与默认朝向，写 `<订单目录>/brief.draft.json`，`status.json` 记
+3. 解析性别与默认朝向，写 `<订单目录>/brief.draft.json`（含 `order_id`、
+   `ordered_at`，取自 `rounds.py --new-order`），`status.json` 记
    `state=awaiting_input`。
 
 字段见 `references/protocol.md` 第 1 节。默认值：`size=1024`、`count=2`
@@ -218,7 +237,7 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 - 首轮张数以 `brief.count` 为准（默认 2，上限为预算）；需要变体时最多再 1 张。
 - **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true` 才可调用
   `GenerateImage`；没有确认块就回第二段确认页，不许直接抽。
-- 整单不超过 `--budget`（默认 10），且**按轮累计**。生成前先跑
+- 整单不超过 `--budget`（默认 10），且**按当前订单累计**。生成前先跑
   `rounds.py --check`；余额 ≤0 必须停下说明「预算用尽」并等用户决定是否追加，
   追加确认后才用 `--budget N` 调大，不许静默超额。
 - 调用前在 `status.json` 记 `budget.limit`；每成功生成一张，`used += 1`、
@@ -263,8 +282,11 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 - `--formats` 取 `1024` / `2k` / `4k` 的逗号组合；`--jpg` 额外导出压缩版，
   `--jpg-quality` 默认 88。只有用户明确要 2K/4K/JPG 时才传对应参数，
   否则订单目录里只有 `-src` 与成品。
-- `--budget` 默认 10；脚本用**本批轮次**的原图张数做账（订单根里的历史轮次不重复计数），
-  超预算且未加 `--allow-over-budget` 时直接退出（码 3），不评分不导出。
+- `--budget` 默认 10；脚本只统计**当前订单**（`order_id`）的原图张数，
+  同目录历史订单的图片不重复计数，超预算且未加 `--allow-over-budget` 时
+  直接退出（码 3），不评分不导出。
+- 当前订单解析顺序：`--order-id` > `brief.order_id` > `rounds.json` 当前订单；
+  新单先跑 `rounds.py --new-order`，再写 brief 与出图。
 - 不传 `--style` / `--character` / `--checklist` 时对应闸门为 `null`；
   风格/角色单的交付不接受 `null`。
 - `--angles` 不传时默认读 `references/angles.json`（不再跳过角度闸门）。
@@ -282,8 +304,9 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 - `<前缀>-avatar-<N>-src.<ext>` 原图（生成后立即改名归档，不删）
 - `<前缀>-avatar-<N>-2k.png` / `-4k.png` 放大版（仅当 `--formats` 含该档）
 - `<前缀>-avatar-<N>-q<q>.jpg` 压缩版（仅当 `--jpg`）
-- 订单根 `manifest.json`（每张记 `file/round/variant/angle/format`、
-  原图 `raw_quality` 与成品 `final_gate` 分列）、`contact_sheet.jpg`
+- 订单根 `manifest.json`（每张记 `file/order_id/round/variant/angle/format`、
+  原图 `raw_quality` 与成品 `final_gate` 分列；旧订单 items 合并保留）、
+  `<前缀>-avatar-<起>-<止>-sheet.jpg` 本单联系表
 
 > raw 生成质量分与 final 交付校验分是两个对象：`raw_quality` 不达标代表这张图
 > 本身就不该交付，不能因为裁切后 `final_gate` PASS 就算数。
@@ -322,9 +345,9 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 `eye_center_y`、`cut_edges`、`sharpness`、定位方式、风格/角色/画布/角度闸门结论、原因码）、
 性别与实际朝向（含 `angle_source`：default / user）、确认来源
 （`chat_message` / `confirmation_card`）、
-**本轮实际生成张数与累计预算**（`rounds.json` 的 `budget_used` / `remaining`）、
-contact sheet 路径、交付路径、订单目录绝对路径
-（`<订单目录>\manifest.json`、`<订单目录>\contact_sheet.jpg`、
+**本轮实际生成张数与当前订单累计预算**（`rounds.json` 的 `budget_used` / `remaining`）、
+contact sheet 路径（本单 `<前缀>-avatar-<起>-<止>-sheet.jpg`）、交付路径、订单目录绝对路径
+（`<订单目录>\manifest.json`、`<订单目录>\<前缀>-avatar-<起>-<止>-sheet.jpg`、
 `<订单目录>\<前缀>-avatar-<N>.png` 必须在其中）、
 以及放大与不可用能力说明。原因码释义见 `references/protocol.md` 第 6 节。
 把 `status.json` 重新写成 `state=completed`、`phase=done`。
@@ -351,7 +374,7 @@ py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
 
 - 方向落回：`style_fidelity` → 风格锚点；`face_features` / `outfit` → 角色卡块；
   `composition` / `detail` → 构图尾段；`angle` → 翻转 `brief.angle`（左↔右）。
-- 预算按轮累计：`--check` 退出码 5 表示已用尽，必须先明确告知「预算用尽」，
+- 预算按当前订单累计：`--check` 退出码 5 表示已用尽，必须先明确告知「预算用尽」，
   由用户决定是否追加；追加确认后才用 `--budget N` 调大，不许静默超额。
 - **满意度必须落账**：每轮 `satisfaction` 未回填记 `pending`（不是 `null`），
   `--check` 返回 7 并提醒；下次交互继续问，直到每轮回填，三轮全空不能算完。

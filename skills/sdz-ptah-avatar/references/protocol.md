@@ -31,8 +31,8 @@
 >
 > **低成本模式（默认）**：每单生成预算 `--budget`，默认 **10** 张；每张生成都要计数，
 > 超预算必须停下并向用户确认，不能默默继续抽。量产单需用户明确同意后再调大。
-> 预算**按轮累计**（`rounds.json.budget_used`）：累计到上限即停，追加必须再次确认；
-> **不得静默超额**。
+> 预算**按当前订单累计**（`rounds.json.budget_used`，以 `order_id` 作用域）：累计到上限即停，
+> 同目录历史订单不累加，追加必须再次确认；**不得静默超额**。
 
 ---
 
@@ -40,6 +40,8 @@
 
 ```json
 {
+  "order_id": "20261122-173000",
+  "ordered_at": "2026-11-22 17:30:00",
   "style_id": "tv-anime-cel",
   "character_id": "satoshi",
   "character": "小智：黑色尖刺短发、红白棒球帽、蓝色外套白领、脸颊三道闪电纹",
@@ -76,6 +78,8 @@
 
 | 字段 | 必需 | 说明 |
 |-|-|-|
+| `order_id` | 是（新单） | 当前订单 id（`YYYYMMDD-HHMMSS`），由 `rounds.py --new-order` 生成；同一角色目录靠它区分多单 |
+| `ordered_at` | 是（新单） | 下单时间，与 `order_id` 一起写入 `rounds.json.orders[]` 与 `manifest.meta` |
 | `style_id` | 是 | 风格档案 id，对应 `references/styles/<id>.json`；当前仅 `tv-anime-cel` |
 | `character_id` | 是 | 角色卡 id，对应 `references/characters/<id>.json`；当前仅 `satoshi` |
 | `character` | 是 | 角色卡的简要文字版，用于报告头；完整特征以角色卡为准 |
@@ -318,8 +322,8 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 当前角度 | 按 `brief.angle`：`profile_left` 或 `profile_right`；默认按性别规则，用户可覆盖 |
 | 首轮 | 默认 2 张（画质默认 1K）；必须完成确认门后才允许调用 |
 | 二轮补量 | 只在预算内、且用户同意后补；同一角度最多再 1 张 |
-| 单需求总预算 | `--budget`，默认 **10**；每张调用都计数，**按轮累计**，超预算停下确认 |
-| 轮次记录 | 每轮写 `rounds.json`（`round/count/files[]/directions[]/budget_used`），**不建目录**；历史轮次不覆盖 |
+| 单需求总预算 | `--budget`，默认 **10**；每张调用都计数，**按当前订单（`order_id`）累计**，历史订单不累加，超预算停下确认 |
+| 轮次记录 | 每轮写 `rounds.json`（`order_id/round/count/files[]/directions[]/budget_used`），**不建目录**；历史订单与历史轮次都不覆盖 |
 | 预算落盘 | `status.json` 的 `budget{limit,used,remaining}` 每次生成后 +1；manifest 记录实际张数 |
 | 侧脸变体 | 需要重抽时，换「远眼不可见」的措辞（至少两种写法），不要原句连抽 |
 | 侧脸验收 | 每张先放大到 800px 看鼻梁后方；出现第二只眼/眼白即弃用，不进入评分 |
@@ -432,19 +436,31 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
 ```json
 {
   "schema": "avatar-rounds/1.0",
-  "order_id": "satoshi-01",
+  "order_id": "20261122-173000",
+  "ordered_at": "2026-11-22 17:30:00",
+  "character": "satoshi",
   "budget_limit": 10,
   "budget_used": 2,
   "remaining": 8,
   "satisfaction": "pending",
   "pending_rounds": [1],
+  "orders": [
+    {
+      "order_id": "20261122-173000",
+      "ordered_at": "2026-11-22 17:30:00",
+      "brief": "brief.json",
+      "budget_limit": 10
+    }
+  ],
   "rounds": [
     {
+      "order_id": "20261122-173000",
+      "ordered_at": "2026-11-22 17:30:00",
       "round": 1,
       "count": 2,
       "directions": [],
       "budget_used": 2,
-      "generated_at": "2026-11-22 15:31:20",
+      "generated_at": "2026-11-22 17:31:20",
       "satisfaction": "pending",
       "files": ["satoshi-avatar-1.png", "satoshi-avatar-2.png"]
     }
@@ -452,8 +468,12 @@ py -3 scripts/rounds.py --order "<订单目录>" --record --round 2 --count 2 `
 }
 ```
 
-`budget_used` 是累计值（各轮 `count` 之和），不是本轮增量。
+同一角色目录长期累积多单：`orders[]` 每次下单追加一项，顶层 `order_id` /
+`ordered_at` 指向当前订单；`rounds[]` 每条带 `order_id`。`budget_used` 只累加
+**当前 `order_id`** 的各轮 `count`，不是目录内所有历史图片的总和。
 预算耗尽时先明确告知「预算用尽」，由用户决定是否追加；追加必须再确认一次。
+新单开始时旧 `brief.json` 归档为 `brief-<旧order_id>.json`，旧 order 条目的
+`brief` 字段同步改成归档名。
 
 ---
 
@@ -908,20 +928,22 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 
 ### 8.0 订单落盘（硬性要求，flat 结构）
 
-每单一个短目录，层级压到最少。默认名 `<角色>-<NN>`（如 `satoshi-01`），
-由 `rounds.py --new-order --root <根> --character <id>` 分配，重名自动递增；
-只有用户明确要求唯一性时才加 `--stamp` 生成 `-MMDD-HHMM` 短时间戳。
+**一个角色一个目录**，层级压到最少。目录名默认取角色 slug（如 `satoshi/`），
+由 `rounds.py --new-order --root <根> --character <id>` 复用/创建，只切换
+`order_id`（`YYYYMMDD-HHMMSS`）；不再有 `-01`/`-02` 序号，也不再新建第二层。
 订单根目录由用户指定，未指定时用 `<当前工作区>/avatar-orders/`：
 
 ```
-<订单根目录>/satoshi-01/
-├── brief.json
+<订单根目录>/satoshi/
+├── brief.json                     # 当前订单
+├── brief-20261122-100000.json     # 历史订单 brief 归档
 ├── prompts.json
-├── rounds.json
+├── rounds.json                    # orders[] + rounds[]，按 order_id 区分
 ├── status.json
 ├── checklist.json
-├── manifest.json                  # 每张图 round/variant/angle/format + 两类评分
-├── contact_sheet.jpg
+├── manifest.json                  # 多单累积：items 按 order_id 归属
+├── satoshi-avatar-1-2-sheet.jpg   # 第一单联系表
+├── satoshi-avatar-3-4-sheet.jpg   # 第二单联系表（不覆盖）
 ├── satoshi-avatar-1.png           # 1024 成品（无后缀 = 最终交付）
 ├── satoshi-avatar-1-src.jpg       # 原图
 ├── satoshi-avatar-1-2k.png        # 仅用户要 2K 时
@@ -929,14 +951,24 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 ├── satoshi-avatar-1-q88.jpg       # 仅用户要 JPG 时
 ├── satoshi-avatar-2.png
 ├── satoshi-avatar-2-src.jpg
-├── satoshi-avatar-3.png           # 第 2 轮继续 3、4，跨轮不重置
+├── satoshi-avatar-3.png           # 下一单继续 3、4，跨单跨轮不重置
 └── satoshi-avatar-3-src.jpg
 ```
 
-- **一个订单只有一个目录，图片全部平铺**：不建 `round01/`、`raw/`、`out/`、`crop/`、
-  `native/`、`png/2k/`、`export/` 等子目录；规格与格式只靠文件名后缀区分。
+- **一个角色一个目录**：同一角色后续所有订单都进同一目录，不再加序号。
+- **目录内完全平铺**：不建 `round01/`、`raw/`、`out/`、`crop/`、`native/`、
+  `png/2k/`、`export/` 等子目录；规格与格式只靠文件名后缀区分。
 - 命名 `<前缀>-avatar-<N>`：成品无后缀，原图 `-src`，可选 `-2k` / `-4k` / `-q<q>`；
-  `N` 在**整个订单内连续递增，跨轮不重置**；前缀默认取角色 slug，`--prefix` 可覆盖。
+  `N` **跨订单连续**：新单先扫描目录内最大编号，从下一个继续，不覆盖、不重置；
+  前缀默认取角色 slug，`--prefix` 可覆盖。
+- 订单区分靠 `order_id` / `ordered_at`：写入 `brief.json`、`rounds.json`
+  （`orders[]` 与每条 `rounds[]`）与 `manifest.meta`；新单归档旧 `brief.json`
+  为 `brief-<旧order_id>.json`，不覆盖旧记录。流水线解析顺序：
+  `--order-id` > `brief.order_id` > `rounds.json` 当前订单。
+- **预算只算当前订单**：`avatar_pipeline.py` 的 `meta.budget.used` 与
+  `rounds.py --check` 只统计当前 `order_id`；同目录历史图片不累加。
+- **联系表按订单生成**：`<前缀>-avatar-<起>-<止>-sheet.jpg`（本单编号最小/最大），
+  后一单不覆盖前一单；无编号的 legacy 布局才用通用 `contact_sheet.jpg`。
 - 轮次只存元数据（`brief.round`、`rounds.json`、`manifest.items[].round`），
   文件名与目录都不带轮次；`--round` 仍是最高优先级。
 - 订单目录不按角度拆分；角度只写在 `brief.json` / `manifest.json`。
@@ -945,8 +977,8 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 - 中断、超预算、脚本报错都不得回滚：已生成图留在订单目录，
   `status.json` 记录 `state`、`phase`、`raw_count`、`last_error`。
 - 清理只能由用户明确要求后执行；`avatar_pipeline.py` 不删除任何订单文件。
-- `status.json` 至少含：`order_id`、`state`、`phase`、`created_at`、
-  `updated_at`、`raw_count`、`export_count`、`last_error`。
+- `status.json` 至少含：`order_id`、`ordered_at`、`state`、`phase`、
+  `created_at`、`updated_at`、`raw_count`、`export_count`、`last_error`。
 - 复盘时用 `<前缀>-avatar-<N>-src.*` + `manifest.json` 即可完整重现判定；
   原图缺失视为该单不合规，交付时要写明缺失原因。
 
@@ -954,12 +986,13 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 
 | | 旧（仅历史订单保留） | 新（默认 `flat`） |
 |-|-|-|
-| 订单目录名 | `<YYYYMMDD-HHMMSS>-<slug>`（可含角度） | `<角色>-<NN>`，重名递增 |
+| 订单目录名 | `<YYYYMMDD-HHMMSS>-<slug>`（可含角度） | `<角色 slug>`（一角色一目录，订单靠 `order_id` 区分） |
 | 原图 | `<订单>/raw/round_XX/<angle>_v1_r1.jpg` | `<订单>/<前缀>-avatar-<N>-src.jpg` |
 | 成品 | `<订单>/out/crop/<id>_1024.png` | `<订单>/<前缀>-avatar-<N>.png` |
 | 放大/JPG | `out/export/png/2k`、`out/export/jpg` | 同目录 `-2k.png` / `-q88.jpg` |
-| 轮次 | 目录 `raw/round_XX`、文件名 `_rN` | 仅元数据（`brief.round` / manifest） |
-| manifest / 联系表 | `<订单>/out/manifest.json`、`out/contact_sheet.jpg` | `<订单>/manifest.json`、`contact_sheet.jpg` |
+| 轮次 | 目录 `raw/round_XX`、文件名 `_rN` | 仅元数据（`brief.round` / `rounds.json` / manifest） |
+| 多订单 | 每单一个新目录 | 同目录累积，`brief` 归档 + `rounds.orders[]` + manifest 合并 |
+| manifest / 联系表 | `<订单>/out/manifest.json`、`out/contact_sheet.jpg` | `<订单>/manifest.json`、`<前缀>-avatar-<起>-<止>-sheet.jpg` |
 | 报告 | `out/report.md` | 不生成（报告在对话里给） |
 
 `--layout legacy` 只用于复跑旧订单；新订单一律用默认 `flat`。
@@ -967,13 +1000,14 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 ### 8.1 目录（flat）
 
 ```
-<订单目录>/
+<角色目录>/
 ├── brief.json
+├── brief-<旧order_id>.json     # 历史订单需求单归档
 ├── prompts.json
-├── rounds.json              # 轮次元数据与累计预算，不放图片
+├── rounds.json              # orders[] + rounds[]，当前订单预算，不放图片
 ├── status.json
-├── manifest.json
-├── contact_sheet.jpg
+├── manifest.json            # 累积多单，items 带 order_id
+├── <前缀>-avatar-<起>-<止>-sheet.jpg
 ├── <前缀>-avatar-1.png
 ├── <前缀>-avatar-1-src.jpg
 ├── <前缀>-avatar-1-2k.png   # 可选
@@ -983,8 +1017,10 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 └── <前缀>-avatar-2-src.jpg
 ```
 
-编号 `N` 在订单内连续，不是轮内序号；manifest 的 `id` 与文件名同 stem，
-`file` 直接记文件名（如 `satoshi-avatar-3-src.jpg`），`round` 记它属于第几轮。
+编号 `N` 在整个角色目录内连续（跨订单、跨轮），不是轮内序号；manifest 的 `id`
+与文件名同 stem，`file` 直接记文件名（如 `satoshi-avatar-3-src.jpg`），
+`order_id` 记所属订单，`round` 记它属于该订单的第几轮。
+联系表按订单生成 `<前缀>-avatar-<本单最小N>-<本单最大N>-sheet.jpg`，不覆盖历史订单。
 
 ### 8.2 manifest.json 字段
 
@@ -1000,7 +1036,9 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 | `meta.jpg` | `{enabled, quality}` |
 | `meta.upscale` | `{method, available, detail_added, note}` |
 | `meta.layout` | `flat`（默认）/ `legacy`（仅复跑旧单） |
-| `meta.budget` | `{limit, used, remaining, exceeded, source}`；`used` = 本批轮次的原图张数（flat 不把历史轮次重复计数） |
+| `meta.order_id` / `meta.ordered_at` | 当前订单 id（`YYYYMMDD-HHMMSS`）与下单时间 |
+| `meta.order_dir` | 角色目录名（如 `satoshi`） |
+| `meta.budget` | `{limit, used, remaining, exceeded, source}`；`used` = **当前订单**的原图张数，`source=order_id`（无订单台账时才退回 `batch_round` / `raw_count`） |
 | `meta.style_profile` / `meta.character` / `meta.angle_matrix` | 本次使用的档案 id 与路径 |
 | `meta.face_mode` | `faced` / `faceless`；决定指标集与角度判据 |
 | `meta.generation` | `{backend, reference_input_supported, mode, fallback, strength, identity_unverified}` |
@@ -1010,8 +1048,8 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 | `brief` | 需求单原文（含 `confirm` 块） |
 | `brief_effective` | 补默认值后的实际执行参数 |
 | `capability` | 可用 / 不可用能力清单与说明 |
-| `summary` | `total / pass / reject / best_total / contact_sheet` |
-| `items` | 每张图的完整记录 |
+| `summary` | `total / pass / reject / best_total / order_id / contact_sheet`（`total` 等描述本次运行；`contact_sheet` 是本单拼图文件名） |
+| `items` | 每张图的完整记录；**合并保留历史订单的 items**，同 `file` 以本次结果更新 |
 
 flat 布局不再写 `report.md` 与 `budget.json`（预算写进 `manifest.meta.budget` 与
 `status.json`）；`legacy` 布局保留旧的 `out/budget.json` / `out/report.md`。
@@ -1022,7 +1060,8 @@ flat 布局不再写 `report.md` 与 `budget.json`（预算写进 `manifest.meta
 | 字段 | 说明 |
 |-|-|
 | `id` / `file` | `id` = 文件名 stem（如 `satoshi-avatar-3`）；`file` = 原图文件名（如 `satoshi-avatar-3-src.jpg`） |
-| `round` / `round_source` | 该图属于第几轮，以及轮次来源（`cli` / `brief` / `manifest` / `unknown`） |
+| `order_id` / `nn` | 所属订单 id 与目录内连续编号；历史订单 items 保留原 `order_id` |
+| `round` / `round_source` | 该图属于当前订单第几轮，以及轮次来源（`cli` / `brief` / `manifest` / `unknown`） |
 | `variant` / `angle` | 变体号（`vN`）与目标角度，供从文件名回查 |
 | `format` | `{master:"png", tiers:[...], jpg, jpg_quality}`，本图实际导出的规格 |
 | `verdict` | `PASS` / `REJECT` / `ERROR` |

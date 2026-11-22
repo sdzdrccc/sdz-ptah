@@ -6,7 +6,7 @@
 规则、阈值、原因码与放大说明见 ../references/protocol.md。
 
 用法：
-  py -3 avatar_pipeline.py --raw <订单目录> [--prefix satoshi] \
+  py -3 avatar_pipeline.py --raw <订单目录> [--prefix satoshi] [--order-id <订单id>] \
         [--brief brief.json] [--formats 1024,2k,4k] [--jpg] [--jpg-quality 88]
   旧订单复跑：--raw <订单>/raw --out <订单>/out --layout legacy
 """
@@ -22,7 +22,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -1678,8 +1678,14 @@ def resolve_variant(name):
     return int(m.group(1)) if m else None
 
 
+def is_sheet_name(name):
+    """联系表：旧的通用 contact_sheet.jpg 与按订单的 <前缀>-avatar-<起>-<止>-sheet.jpg。"""
+    low = (name or "").lower()
+    return low == "contact_sheet.jpg" or low.endswith("-sheet.jpg")
+
+
 def flat_sources(order_dir):
-    """订单根里待处理的原图：排除成品与按规格导出的 2k/4k/qNN。"""
+    """订单根里待处理的原图：排除成品、规格导出与联系表。"""
     names = []
     for name in sorted(os.listdir(order_dir)):
         path = os.path.join(order_dir, name)
@@ -1687,7 +1693,7 @@ def flat_sources(order_dir):
             continue
         if not name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
             continue
-        if name.lower() == "contact_sheet.jpg":
+        if is_sheet_name(name):
             continue
         if _FLAT_EXPORT.match(name) or _FLAT_FINAL.match(name):
             continue
@@ -1700,6 +1706,8 @@ def flat_detect_prefix(order_dir):
     counts = {}
     pat = re.compile(r"^(?P<p>.+)-avatar-\d+(?:-[a-z0-9]+)?\.[A-Za-z0-9]+$", re.I)
     for name in os.listdir(order_dir):
+        if is_sheet_name(name):
+            continue
         m = pat.match(name)
         if m:
             p = m.group("p")
@@ -1708,13 +1716,34 @@ def flat_detect_prefix(order_dir):
 
 
 def flat_max_number(order_dir, prefix=None):
-    """订单内已用的最大编号（含成品/原图/导出），跨轮连续递增，不按前缀重置。"""
+    """订单内已用的最大编号（含成品/原图/导出），跨单跨轮连续递增。"""
     mx = 0
     for name in os.listdir(order_dir):
+        if is_sheet_name(name):
+            continue
         m = _FLAT_ANY_NUMBER.match(name)
         if m:
             mx = max(mx, int(m.group(1)))
     return mx
+
+
+def ledger_order(order_root):
+    """读 rounds.json 的当前订单 id 与下单时间；旧台账没有则返回 (None, None)。"""
+    path = os.path.join(order_root, "rounds.json")
+    if not os.path.isfile(path):
+        return None, None
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None, None
+    oid = data.get("order_id")
+    ordered_at = data.get("ordered_at")
+    orders = data.get("orders") or []
+    if not oid and orders:
+        oid = orders[-1].get("order_id")
+        ordered_at = ordered_at or orders[-1].get("ordered_at")
+    return oid, ordered_at
 
 
 def flat_numbers(names, prefix, start=0):
@@ -2579,6 +2608,8 @@ def main():
                     help="flat=订单内图片平铺 <前缀>-avatar-N（默认，新订单）；legacy=旧 crop/native 结构")
     ap.add_argument("--prefix", default=None,
                     help="flat 文件名前缀（默认取角色卡 character_id 或 brief.character_id）")
+    ap.add_argument("--order-id", default=None,
+                    help="当前订单 id（默认读 brief.order_id > rounds.json 当前订单）")
     ap.add_argument("--brief", default=None, help="brief.json（可选，用于报告头）")
     ap.add_argument("--formats", default="1024", help="逗号分隔：1024,2k,4k")
     ap.add_argument("--jpg", action="store_true", help="额外导出 JPG 压缩版")
@@ -2655,9 +2686,21 @@ def main():
     cli_round = args.round
     brief_round = (norm or {}).get("round")
     prefix = None
+    current_order = None
+    current_ordered_at = None
+    prev_manifest_doc = {}
     if layout == "flat":
         order_root = out_dir or os.path.abspath(raw_dir)
         os.makedirs(order_root, exist_ok=True)
+        ledger_oid, ledger_at = ledger_order(order_root)
+        current_order = (args.order_id or (brief or {}).get("order_id")
+                         or ledger_oid)
+        current_ordered_at = ((brief or {}).get("ordered_at") or ledger_at)
+        if current_order and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",
+                                              current_order):
+            print("order id invalid: %s（只允许字母/数字/下划线/点/连字符）"
+                  % current_order)
+            return 2
         prefix = (args.prefix or (card or {}).get("character_id")
                   or (norm or {}).get("character_id")
                   or flat_detect_prefix(order_root) or "avatar")
@@ -2669,11 +2712,17 @@ def main():
         if os.path.exists(prev_manifest):
             try:
                 with open(prev_manifest, "r", encoding="utf-8-sig") as fh:
-                    for it in json.load(fh).get("items") or []:
-                        if it.get("file"):
-                            prev_meta[it["file"]] = it
+                    prev_manifest_doc = json.load(fh) or {}
+                for it in prev_manifest_doc.get("items") or []:
+                    if it.get("file"):
+                        prev_meta[it["file"]] = it
             except Exception:
+                prev_manifest_doc = {}
                 prev_meta = {}
+        # 同目录已有别的订单的 manifest 记录时，无归属的旧 -src 才按历史处理，
+        # 避免把上一单的图算进本单预算。
+        has_history = any(it.get("order_id") and it.get("order_id") != current_order
+                          for it in prev_meta.values())
         names = flat_sources(order_root)
         start = flat_max_number(order_root, prefix)
         nums = flat_numbers(names, prefix, start)
@@ -2681,6 +2730,10 @@ def main():
         for name, nn in zip(names, nums):
             path = os.path.join(order_root, name)
             old = prev_meta.get(name) or {}
+            item_order = old.get("order_id")
+            if item_order is None and current_order:
+                item_order = (None if _FLAT_SRC.match(name) and has_history
+                              else current_order)
             if old.get("round"):
                 rkey, rsrc = old["round"], old.get("round_source") or "manifest"
             else:
@@ -2696,8 +2749,8 @@ def main():
                 print("WARNING: 原图改名失败（%s），保留原名。" % exc)
             work.append({"name": name, "path": path, "round_dir": order_root,
                          "nn": nn, "round": rkey, "round_source": rsrc,
-                         "angle": old.get("angle") or angle, "variant": variant,
-                         "file": rel(path, order_root),
+                         "order_id": item_order, "angle": old.get("angle") or angle,
+                         "variant": variant, "file": rel(path, order_root),
                          "id": "%s-avatar-%d" % (prefix, nn)})
         out_dir = order_root
         ref_dir = order_root
@@ -2709,7 +2762,7 @@ def main():
             path = os.path.join(raw_dir, name)
             rkey, rsrc = resolve_round_legacy(name, path, cli_round, brief_round)
             work.append({"name": name, "path": path, "round_dir": out_dir, "nn": None,
-                         "round": rkey, "round_source": rsrc,
+                         "round": rkey, "round_source": rsrc, "order_id": None,
                          "angle": resolve_angle(name, angle_matrix, expected_default),
                          "variant": resolve_variant(name),
                          "file": name, "id": os.path.splitext(name)[0]})
@@ -2720,14 +2773,20 @@ def main():
         return 2
 
     batch_round, _batch_source = resolve_round_meta(cli_round, brief_round)
-    if layout == "flat" and batch_round != "__batch__":
-        # 订单根会累积历史轮次；预算只算本批轮次，避免重复计数把预算吃光
+    if layout == "flat" and current_order:
+        # 同目录长期累积多单；预算只算当前订单，历史图片不累加
+        used = len([w for w in work if w["order_id"] == current_order])
+        budget_source = "order_id"
+    elif layout == "flat" and batch_round != "__batch__":
+        # 没有订单台账时退回按本批轮次计数
         used = len([w for w in work if w["round"] == batch_round])
+        budget_source = "batch_round"
     else:
         used = len(work)
+        budget_source = "raw_count"
     budget = {"limit": args.budget, "used": used, "remaining": max(0, args.budget - used),
               "exceeded": used > args.budget,
-              "source": "batch_round" if batch_round != "__batch__" else "raw_count"}
+              "source": budget_source}
     if layout == "legacy":
         with open(os.path.join(out_dir, "budget.json"), "w", encoding="utf-8") as fh:
             json.dump(budget, fh, ensure_ascii=False, indent=2)
@@ -2781,7 +2840,9 @@ def main():
                                             "reasons": ["raw:open_failed"],
                                             "note": "原图不可读，无法评估生成质量。"},
                             "round": item_round,
-                            "round_source": item_round_source})
+                            "round_source": item_round_source,
+                            "order_id": item.get("order_id"),
+                            "nn": item.get("nn")})
             continue
 
         image_content = _content_analysis(img)
@@ -2968,6 +3029,8 @@ def main():
             "face_metrics_applied": best.get("face_metrics_applied", True),
             "round": item_round,
             "round_source": item_round_source,
+            "order_id": item.get("order_id"),
+            "nn": item.get("nn"),
             "variant": item.get("variant"),
             "format": {"master": "png", "tiers": list(formats),
                        "jpg": args.jpg, "jpg_quality": args.jpg_quality
@@ -3012,6 +3075,8 @@ def main():
                 continue
             if results[i].get("round") != results[j].get("round"):
                 continue
+            if results[i].get("order_id") != results[j].get("order_id"):
+                continue
             if results[i].get("expected_angle") != results[j].get("expected_angle"):
                 continue
             if hamming(results[i]["ahash"], results[j]["ahash"]) <= 3:
@@ -3023,12 +3088,26 @@ def main():
     passed = [r for r in results if r.get("verdict") == "PASS"]
     ranked = sorted(results, key=lambda r: r.get("total", 0), reverse=True)
 
+    # 联系表按订单生成，文件名带本单编号区间，后一单不覆盖前一单。
+    if layout == "flat" and current_order:
+        sheet_scope = [r for r in ranked
+                       if "image" in r and r.get("order_id") == current_order]
+    else:
+        sheet_scope = [r for r in ranked if "image" in r]
     sheet_items = [{"image": r["image"], "total": r["total"], "verdict": r["verdict"],
                     "tag": r["id"], "reason": (r["reasons"][0] if r["reasons"] else "")}
-                   for r in ranked if "image" in r]
-    sheet_path = os.path.join(out_dir, "contact_sheet.jpg")
+                   for r in sheet_scope]
+    sheet_name = None
     if sheet_items:
+        nums = [r["nn"] for r in sheet_scope if r.get("nn") is not None]
+        if layout == "flat" and prefix and nums:
+            sheet_name = "%s-avatar-%d-%d-sheet.jpg" % (prefix, min(nums), max(nums))
+        else:
+            sheet_name = "contact_sheet.jpg"
+        sheet_path = os.path.join(out_dir, sheet_name)
         draw_sheet(sheet_items, sheet_path)
+    else:
+        sheet_path = os.path.join(out_dir, "contact_sheet.jpg")
 
     manifest = {
         "meta": {
@@ -3039,6 +3118,9 @@ def main():
             "reproducible": False,
             "native_limit": NATIVE_LIMIT,
             "layout": layout,
+            "order_id": current_order,
+            "ordered_at": current_ordered_at,
+            "order_dir": os.path.basename(os.path.normpath(out_dir)),
             "formats": formats,
             "jpg": {"enabled": args.jpg, "quality": args.jpg_quality},
             "upscale": {
@@ -3100,11 +3182,21 @@ def main():
             "reject": len(results) - len(passed),
             "best_total": ranked[0]["total"] if ranked else 0,
             "face_mode": face_mode,
+            "order_id": current_order,
             "identity_unverified": bool(gen_check and gen_check["identity_unverified"]),
-            "contact_sheet": "contact_sheet.jpg" if sheet_items else None,
+            "contact_sheet": sheet_name,
         },
-        "items": [{k: v for k, v in r.items() if k not in ("image", "ahash")} for r in ranked],
+        "items": [],
     }
+    new_items = [{k: v for k, v in r.items() if k not in ("image", "ahash")}
+                 for r in ranked]
+    if layout == "flat" and prev_manifest_doc:
+        # 同目录累积多单：本次未处理的旧订单记录原样保留，新订单不覆盖历史
+        current_files = {it.get("file") for it in new_items if it.get("file")}
+        old_items = [it for it in prev_manifest_doc.get("items") or []
+                     if it.get("file") and it["file"] not in current_files]
+        new_items = old_items + new_items
+    manifest["items"] = new_items
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
 
