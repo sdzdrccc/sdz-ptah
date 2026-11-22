@@ -36,6 +36,7 @@ EXIT_OK = 0
 EXIT_INPUT = 2
 EXIT_BUDGET = 5
 EXIT_DUPLICATE = 6
+EXIT_PENDING = 7          # 有轮次满意度未回填：下次交互必须提醒
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FEEDBACK_DEFAULT = os.path.normpath(
@@ -138,7 +139,19 @@ def load_ledger(order_dir, bud=None):
     data["budget_limit"] = max(1, int(limit if limit is not None
                                       else DEFAULT_BUDGET))
     data["remaining"] = data["budget_limit"] - data["budget_used"]
-    data.setdefault("satisfaction", None)
+    # 满意度未回填的轮次标 pending：三轮全 null 不能算完，
+    # 下次 --check / --record 都要再次提醒。
+    for item in rounds:
+        if item.get("satisfaction") not in SATISFACTIONS:
+            item["satisfaction"] = "pending"
+    data["pending_rounds"] = [int(r.get("round") or 0) for r in rounds
+                              if r.get("satisfaction") == "pending"]
+    if not rounds:
+        data["satisfaction"] = None
+    elif data["pending_rounds"]:
+        data["satisfaction"] = "pending"
+    else:
+        data["satisfaction"] = rounds[-1].get("satisfaction")
     data.setdefault("updated_at", now_text())
     return data
 
@@ -147,6 +160,18 @@ def save_ledger(order_dir, data):
     data["budget_used"] = sum(int(r.get("count") or 0)
                               for r in data.get("rounds", []))
     data["remaining"] = data["budget_limit"] - data["budget_used"]
+    rounds = data.get("rounds", [])
+    for item in rounds:
+        if item.get("satisfaction") not in SATISFACTIONS:
+            item["satisfaction"] = "pending"
+    data["pending_rounds"] = [int(r.get("round") or 0) for r in rounds
+                              if r.get("satisfaction") == "pending"]
+    if not rounds:
+        data["satisfaction"] = None
+    elif data["pending_rounds"]:
+        data["satisfaction"] = "pending"
+    else:
+        data["satisfaction"] = rounds[-1].get("satisfaction")
     data["updated_at"] = now_text()
     path = rounds_path(order_dir)
     tmp = path + ".tmp"
@@ -163,16 +188,27 @@ def echo(payload):
 def do_check(order_dir, budget):
     data = load_ledger(order_dir, budget)
     exhausted = data["remaining"] <= 0
-    echo({"order_id": data["order_id"],
-          "budget_limit": data["budget_limit"],
-          "budget_used": data["budget_used"],
-          "remaining": max(0, data["remaining"]),
-          "exhausted": exhausted,
-          "rounds": len(data.get("rounds", []))})
+    pending = data.get("pending_rounds") or []
+    payload = {"order_id": data["order_id"],
+               "budget_limit": data["budget_limit"],
+               "budget_used": data["budget_used"],
+               "remaining": max(0, data["remaining"]),
+               "exhausted": exhausted,
+               "rounds": len(data.get("rounds", [])),
+               "satisfaction": data.get("satisfaction"),
+               "pending_rounds": pending}
+    if pending:
+        payload["reminder"] = ("第 %s 轮满意度未回填（pending）；"
+                               "交付后必须问一次「这版满意吗」并回填。"
+                               % "、".join(str(n) for n in pending))
+    echo(payload)
     if exhausted:
         print("预算用尽：已用 %d / 上限 %d。追加预算需用户再次确认。"
               % (data["budget_used"], data["budget_limit"]))
         return EXIT_BUDGET
+    if pending:
+        print(payload["reminder"])
+        return EXIT_PENDING
     return EXIT_OK
 
 
@@ -233,18 +269,26 @@ def do_record(order_dir, budget, round_no, count, ids, catalog, available,
         "directions": directions,
         "budget_used": used + count,
         "generated_at": now_text(),
-        "satisfaction": satisfaction,
+        "satisfaction": satisfaction or "pending",
         "raw_dir": os.path.relpath(raw_dir, order_dir).replace("\\", "/"),
         "out_dir": os.path.relpath(out_dir, order_dir).replace("\\", "/"),
     }
     data["rounds"].append(entry)
-    if satisfaction is not None:
-        data["satisfaction"] = satisfaction
+    prior_pending = [int(r.get("round") or 0) for r in data["rounds"]
+                     if int(r.get("round") or 0) != round_no
+                     and r.get("satisfaction") == "pending"]
     save_ledger(order_dir, data)
-    echo({"recorded": entry,
-          "budget": {"limit": data["budget_limit"],
-                     "used": data["budget_used"],
-                     "remaining": max(0, data["remaining"])}})
+    payload = {"recorded": entry,
+               "budget": {"limit": data["budget_limit"],
+                          "used": data["budget_used"],
+                          "remaining": max(0, data["remaining"])},
+               "satisfaction": data.get("satisfaction"),
+               "pending_rounds": data.get("pending_rounds")}
+    if prior_pending:
+        payload["reminder"] = ("第 %s 轮满意度仍未回填（pending），"
+                               "下次交互需继续提醒。"
+                               % "、".join(str(n) for n in prior_pending))
+    echo(payload)
     return EXIT_OK
 
 
@@ -262,9 +306,10 @@ def do_set_satisfaction(order_dir, budget, round_no, satisfaction):
         print("找不到第 %d 轮" % round_no)
         return EXIT_INPUT
     hit["satisfaction"] = satisfaction
-    data["satisfaction"] = satisfaction
     save_ledger(order_dir, data)
-    echo({"round": round_no, "satisfaction": satisfaction})
+    echo({"round": round_no, "satisfaction": satisfaction,
+          "order_satisfaction": data.get("satisfaction"),
+          "pending_rounds": data.get("pending_rounds")})
     return EXIT_OK
 
 

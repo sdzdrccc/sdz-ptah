@@ -20,7 +20,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -74,6 +74,21 @@ RING_RADIUS_MIN = 0.46           # 环半径中位数下限（徽章圆环贴近
 RING_RADIUS_DEV_MAX = 0.03       # 半径离散度上限（同一圈环）
 CUT_BG_SHARE_MIN = 0.05     # 背景占比太低说明不是平涂底，截断判定不可靠
 
+# 内容框（非背景主体）兜底：只对可判定的平涂背景生效。
+# 极狐那一单的问题不是「脸占比」，而是裁切把耳尖切平、上下各留 26% 白边，
+# 因此除了人脸锚点，还必须用内容最高点约束裁切，并给成品加留白/主体占比闸门。
+CONTENT_WORK = 320
+CONTENT_TOL = 40                 # 与四角背景色的 RGB 曼哈顿距离
+CONTENT_FLAT_STD = 6.0           # 四角补丁标准差 ≤ 该值视为平涂背景
+CONTENT_BG_SHARE_MIN = 0.10      # 背景占比下限，太低说明不是平涂底/主体铺满
+CONTENT_SHARE_MIN = 0.05         # 内容框面积占比下限，低于此视为空图
+HEAD_SAFE_MARGIN = 0.06          # 裁切时头顶到画布上沿的安全边距
+TOP_BLANK_MIN = 0.015            # 成品上留白下限（原图有空间时才检查）
+TOP_BLANK_MAX = 0.16             # 成品上留白上限
+BOTTOM_BLANK_MAX = 0.18          # 成品下留白上限（胸像可贴底）
+SUBJECT_SHARE_MIN = 0.40         # 内容框面积 / 画布面积 下限
+SUBJECT_SHARE_MAX = 0.95
+HEAD_CUT_RUN_RATIO = 0.22        # 内容最高行最长连续段 / 内容宽，超过视为平切头
 FACE_RATIO_MIN, FACE_RATIO_MAX = 0.34, 0.82
 EYE_MIN, EYE_MAX = 0.12, 0.36
 # 侧脸单眼走「头部包围盒」定位，箱体含头发/帽子，眼位天然比正脸低。
@@ -108,6 +123,10 @@ REASON_LABEL = {
     "composition_bad:face_ratio": "脸占比越界",
     "composition_bad:eye_y": "眼睛纵向位置越界",
     "composition_bad:subject_cut": "主体被画面边缘截断",
+    "composition_bad:head_cut": "头顶被裁平（内容最高行连续段过宽）",
+    "composition_bad:whitespace": "上下留白越界",
+    "composition_bad:subject_share": "主体占画面比例越界",
+    "locate_failed": "定位失败（非构图缺陷）",
     "canvas_bad:square": "画布不是方形",
     "canvas_bad:frame": "画面有边框或装饰圈",
     "thumb_unreadable": "缩图不可读",
@@ -434,6 +453,189 @@ def _profile_geometry(img, cells, scale, eye, eye_h=0.0):
     return left, right, top, chin
 
 
+def _content_analysis(img, work=CONTENT_WORK, tol=CONTENT_TOL):
+    """非背景内容框：四角背景色 + 泛洪，返回留白、占比与顶部平切信号。
+
+    只对平涂背景可靠（`reliable`）；非平涂底返回 applied=False，
+    闸门记 null，不把「算不出」当成通过。背景用泛洪而不是全局色距，
+    避免把被装甲包住的白色高光误判成背景。
+    """
+    W, H = img.size
+    w = min(work, W)
+    h = max(1, int(round(H * w / float(W))))
+    if w < 8 or h < 8:
+        return {"applied": False, "reliable": False, "empty": True,
+                "note": "image too small"}
+    small = img.convert("RGB").resize((w, h), Image.BILINEAR)
+    px = small.load()
+    patch = max(2, min(w, h) // 25)
+    corners = []
+    for x0, y0 in ((0, 0), (w - patch, 0), (0, h - patch),
+                   (w - patch, h - patch)):
+        vals = [px[x, y] for y in range(y0, y0 + patch)
+                for x in range(x0, x0 + patch)]
+        corners.append(vals)
+    allv = [p for c in corners for p in c]
+    bg = tuple(sorted(p[i] for p in allv)[len(allv) // 2] for i in range(3))
+    flat = True
+    for c in corners:
+        for i in range(3):
+            mean = sum(p[i] for p in c) / float(len(c))
+            var = sum((p[i] - mean) ** 2 for p in c) / float(len(c))
+            if math.sqrt(var) > CONTENT_FLAT_STD:
+                flat = False
+
+    def is_bg(c):
+        return (abs(c[0] - bg[0]) + abs(c[1] - bg[1])
+                + abs(c[2] - bg[2])) <= tol
+
+    seen = [[False] * w for _ in range(h)]
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if not seen[y][x] and is_bg(px[x, y]):
+                seen[y][x] = True
+                q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if not seen[y][x] and is_bg(px[x, y]):
+                seen[y][x] = True
+                q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < w and 0 <= ny < h and not seen[ny][nx] \
+                    and is_bg(px[nx, ny]):
+                seen[ny][nx] = True
+                q.append((nx, ny))
+    bg_hits = sum(1 for row in seen for v in row if v)
+    bg_share = bg_hits / float(w * h)
+    mask = [[not seen[y][x] for x in range(w)] for y in range(h)]
+    xs = [x for y in range(h) for x in range(w) if mask[y][x]]
+    ys = [y for y in range(h) for x in range(w) if mask[y][x]]
+    if not xs:
+        return {"applied": True, "reliable": False, "empty": True,
+                "flat": flat, "bg_share": round(bg_share, 3),
+                "note": "no content found"}
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+
+    def longest_run(y):
+        best = cur = 0
+        for x in range(w):
+            cur = cur + 1 if mask[y][x] else 0
+            best = max(best, cur)
+        return best
+
+    content_w = max(1, x1 - x0 + 1)
+    share = content_w * (y1 - y0 + 1) / float(w * h)
+    sx, sy = W / float(w), H / float(h)
+    reliable = bool(flat and bg_share >= CONTENT_BG_SHARE_MIN
+                    and share >= CONTENT_SHARE_MIN)
+    return {
+        "applied": True,
+        "reliable": reliable,
+        "empty": False,
+        "flat": bool(flat),
+        "bg": list(bg),
+        "bg_share": round(bg_share, 3),
+        "bbox": [round(x0 * sx, 1), round(y0 * sy, 1),
+                 round((x1 + 1) * sx, 1), round((y1 + 1) * sy, 1)],
+        "top_blank": round(y0 / float(h), 3),
+        "bottom_blank": round((h - 1 - y1) / float(h), 3),
+        "left_blank": round(x0 / float(w), 3),
+        "right_blank": round((w - 1 - x1) / float(w), 3),
+        "share": round(share, 3),
+        "top_run_ratio": round(longest_run(y0) / float(content_w), 3),
+        "note": None if reliable else "background not flat / content not separable",
+    }
+
+
+def _content_gate(content, raw_content=None):
+    """成品内容闸门：留白、主体占比、头顶平切。不可靠时记 null。"""
+    if not content or not content.get("applied") or not content.get("reliable"):
+        return {"applied": False, "passed": None, "checks": {}, "reasons": [],
+                "note": (content or {}).get("note") or "content metrics unavailable"}
+    top_min = TOP_BLANK_MIN
+    if raw_content and raw_content.get("reliable"):
+        # 原图本身头顶贴边时，不额外要求成品留出上边距
+        top_min = min(TOP_BLANK_MIN, raw_content.get("top_blank") or 0.0)
+    checks = {
+        "top_blank": top_min <= content["top_blank"] <= TOP_BLANK_MAX,
+        "bottom_blank": content["bottom_blank"] <= BOTTOM_BLANK_MAX,
+        "subject_share": SUBJECT_SHARE_MIN <= content["share"] <= SUBJECT_SHARE_MAX,
+        "head_not_flat": content["top_run_ratio"] <= HEAD_CUT_RUN_RATIO,
+    }
+    reasons = []
+    if not checks["top_blank"] or not checks["bottom_blank"]:
+        reasons.append("composition_bad:whitespace")
+    if not checks["subject_share"]:
+        reasons.append("composition_bad:subject_share")
+    if not checks["head_not_flat"]:
+        reasons.append("composition_bad:head_cut")
+    return {"applied": True, "passed": not reasons, "checks": checks,
+            "reasons": reasons, "metric_set": "content_bbox",
+            "thresholds": {"top_blank_min": top_min, "top_blank_max": TOP_BLANK_MAX,
+                           "bottom_blank_max": BOTTOM_BLANK_MAX,
+                           "subject_share": [SUBJECT_SHARE_MIN, SUBJECT_SHARE_MAX],
+                           "top_run_ratio_max": HEAD_CUT_RUN_RATIO}}
+
+
+def _content_head(img, content=None):
+    """无肤色/无眼白时的头部轮廓回退：内容最高段定头顶，顶部 40% 最宽行定头宽。
+
+    不依赖人脸模型，也不冒充「已检出脸」：`method=content-head`、
+    `profile=False`、`eyes=[]`，交给角度闸门判方向；方向判不出记
+    angle_undetermined，而不是直接 no_face。
+    """
+    info = content or _content_analysis(img)
+    if not info.get("applied") or not info.get("reliable") or info.get("empty"):
+        return None
+    W, H = img.size
+    bx0, by0, bx1, by1 = info["bbox"]
+    top = max(0.0, by0)
+    content_h = max(1.0, by1 - top)
+    band_bottom = top + 0.40 * content_h
+
+    work = min(CONTENT_WORK, W)
+    h = max(1, int(round(H * work / float(W))))
+    small = img.convert("RGB").resize((work, h), Image.BILINEAR)
+    px = small.load()
+    bg = tuple(info.get("bg") or (255, 255, 255))
+
+    def is_bg(c):
+        return (abs(c[0] - bg[0]) + abs(c[1] - bg[1])
+                + abs(c[2] - bg[2])) <= CONTENT_TOL
+
+    sx, sy = W / float(work), H / float(h)
+    y_limit = int(clamp(band_bottom / sy, 0, h - 1))
+    best = None
+    for y in range(int(clamp(top / sy, 0, h - 1)), y_limit + 1):
+        start = None
+        for x in range(work + 1):
+            solid = x < work and not is_bg(px[x, y])
+            if solid and start is None:
+                start = x
+            elif not solid and start is not None:
+                if best is None or (x - start) > (best[1] - best[0]):
+                    best = (start, x)
+                start = None
+    if best is None:
+        return None
+    head_w = max(1.0, (best[1] - best[0]) * sx)
+    head_h = head_w * 1.05
+    cx = (best[0] + best[1]) * 0.5 * sx
+    if head_w < 0.15 * min(W, H):
+        return None
+    box = (clamp(cx - head_w / 2.0, 0, W - 4),
+           clamp(top, 0, H - 4),
+           clamp(head_w, 4, W), clamp(head_h, 4, H))
+    return {"box": box, "eye_y": top + 0.55 * head_h, "eyes": [],
+            "conf": 0.40, "candidates": 1, "method": "content-head",
+            "eye_source": "estimated", "profile": False,
+            "located_by": "contour", "content": info}
+
+
 def _content_top(img, cx, head_w):
     """在头部横向范围内，返回非背景内容的最上沿 y（全分辨率）。"""
     W, H = img.size
@@ -687,6 +889,12 @@ def detect_face(img):
             prof["skin_coverage"] = round(skin_coverage(img, prof["box"]), 3)
             return prof
         if skin is None:
+            # 无肤色/无眼白（头盔/皮套/纯无脸角色）：走内容轮廓回退，
+            # 不再直接 no_face 判死；定位失败才由主流程记 locate_failed。
+            head = _content_head(img)
+            if head:
+                head["candidates"] = multi if multi > 1 else 1
+                return head
             return None
         skin["candidates"] = multi if multi > 1 else 1
         return skin
@@ -763,12 +971,23 @@ def _count_faces(img):
 
 # ---------------------------------------------------------------- 裁切与评分
 
-def build_crops(img, face):
+def build_crops(img, face, content=None):
     W, H = img.size
     fx, fy, fw, fh = face["box"]
     eye_y = face["eye_y"]
     face_area = float(fw * fh)
     eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
+    content_top = None
+    if (content and content.get("applied") and content.get("reliable")
+            and not content.get("empty")):
+        content_top = content["bbox"][1]
+
+    def keep_head(top, s):
+        """内容最高点必须在画布上沿留出安全边距：禁止裁掉头顶/耳尖。"""
+        if content_top is None:
+            return top
+        return min(top, content_top - HEAD_SAFE_MARGIN * s)
+
     out = []
     for target in TARGET_RATIOS:
         s = math.sqrt(face_area / (0.785 * target))
@@ -780,6 +999,7 @@ def build_crops(img, face):
         top = min(top, fy - MARGIN_BUILD * s)
         # 下巴留白
         top = max(top, (fy + fh) - s + CHIN_BUILD * s)
+        top = keep_head(top, s)
         left = clamp(left, 0, W - s)
         top = clamp(top, 0, H - s)
         # 裁切补偿代价：被约束推离理想位置的程度，用来区分「原生构图好坏」
@@ -793,7 +1013,7 @@ def build_crops(img, face):
     ideal_left = fx + fw / 2.0 - s / 2.0
     ideal_top = eye_y - eye_target * s
     left = clamp(ideal_left, 0, W - s)
-    top = clamp(ideal_top, 0, H - s)
+    top = clamp(keep_head(ideal_top, s), 0, H - s)
     cost = (abs(left - ideal_left) + abs(top - ideal_top)) / s
     out.append({"box": (left, top, left + s, top + s), "target": "full",
                 "cost": round(cost, 4)})
@@ -1019,7 +1239,7 @@ def check_canvas(metrics):
     return {"passed": not reasons, "checks": checks, "reasons": reasons}
 
 
-def score_crop(img, crop, face):
+def score_crop(img, crop, face, image_content=None):
     left, top, right, bottom = crop["box"]
     s = right - left
     fx, fy, fw, fh = face["box"]
@@ -1032,6 +1252,8 @@ def score_crop(img, crop, face):
                        int(round(left + s)), int(round(top + s))))
     edge = _edge_cut(region)
     cut_hard = [e for e in CUT_HARD_EDGES if edge.get(e, {}).get("cut")]
+    content = _content_analysis(region)
+    content_gate = _content_gate(content, image_content)
 
     ratio_score = clamp(1 - abs(face_ratio - RATIO_TARGET) / RATIO_TOL, 0, 1)
     eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
@@ -1074,6 +1296,7 @@ def score_crop(img, crop, face):
         reasons.append("composition_bad:eye_y")
     if cut_hard:
         reasons.append("composition_bad:subject_cut")
+    reasons.extend(content_gate["reasons"])
     if sharp < BLUR_MIN:
         reasons.append("face_blurry")
 
@@ -1093,6 +1316,10 @@ def score_crop(img, crop, face):
             "crop_cost": round(cost, 3),
             "eye_tilt": tilt_metric,
             "blown": round(blown, 3),
+            "content": {k: content.get(k) for k in
+                        ("reliable", "top_blank", "bottom_blank", "left_blank",
+                         "right_blank", "share", "top_run_ratio", "bbox")},
+            "content_gate": content_gate,
         },
         "scores": {
             "face_quality": round(face_quality, 1),
@@ -1688,17 +1915,23 @@ def main():
             continue
 
         face = detect_face(img)
+        image_content = _content_analysis(img)
         if not face:
             results.append({
                 "id": item_id, "file": name, "verdict": "REJECT", "total": 0.0,
                 "metrics": {}, "scores": {}, "gates": {"face": False},
-                "reasons": ["no_face"], "outputs": {}, "detect": None})
+                "reasons": ["locate_failed"],
+                "locate": {"stage": "locate", "from": "no_face",
+                           "note": "眼睛/肤色/头部轮廓回退都未定位到主体；"
+                                   "这是定位失败，不等于构图不合格"},
+                "raw": {"content": image_content},
+                "outputs": {}, "detect": None})
             continue
 
         best = None
         best_any = None
-        for cand in build_crops(img, face):
-            sc = score_crop(img, cand, face)
+        for cand in build_crops(img, face, image_content):
+            sc = score_crop(img, cand, face, image_content)
             if best_any is None or sc["total"] > best_any["total"]:
                 best_any = sc
             # 优先交付「构图闸门全过」的候选；已紧构图的原图用全幅候选，
@@ -1713,6 +1946,15 @@ def main():
         native_crop = img.crop((left, top, left + s, top + s))
         master = native_crop.resize((1024, 1024), resample())
 
+        # 闸门在最终成品上重跑一遍：内容留白 / 主体占比 / 头顶平切
+        # 以成品为准，原图与成品分别记录，避免「只跑部分指标就判 PASS」。
+        final_content = _content_analysis(master)
+        final_content_gate = _content_gate(final_content, image_content)
+        # 输入本身就是成品方图时（例如返修他人裁好的成品），
+        # 原图的头被切平/留白越界无法靠再裁一次还原，必须按原图拦下。
+        input_content_gate = _content_gate(image_content, None)
+        input_square = abs(img.size[0] - img.size[1]) <= 2
+
         smetrics = style_metrics(master)
         style_gate = check_style(smetrics, profile)
         cmetrics = canvas_metrics(master)
@@ -1722,7 +1964,16 @@ def main():
         angle_gate = check_angle(expected_angle, detected_angle, best["metrics"], angle_matrix)
 
         tid, tedge, tcontrast = thumb_readability(master)
-        reasons = list(best["reasons"])
+        content_codes = ("composition_bad:whitespace",
+                         "composition_bad:subject_share",
+                         "composition_bad:head_cut")
+        # 成品内容闸门是最终口径：先剔除候选阶段的同类原因，再按成品重记
+        reasons = [r for r in best["reasons"] if r not in content_codes]
+        reasons.extend(final_content_gate["reasons"])
+        if input_square and input_content_gate["passed"] is False:
+            for r in input_content_gate["reasons"]:
+                if r not in reasons:
+                    reasons.append(r)
         if tid < THUMB_MIN:
             reasons.append("thumb_unreadable")
         if face.get("candidates", 1) > 1:
@@ -1777,6 +2028,8 @@ def main():
             "gates": {
                 "face": True,
                 "composition": not any(r.startswith("composition_bad") for r in reasons),
+                "content": final_content_gate["passed"],
+                "content_input": input_content_gate["passed"],
                 "thumb": tid >= THUMB_MIN,
                 "text": None,
                 "nsfw": None,
@@ -1795,6 +2048,18 @@ def main():
             "character_check": char_gate,
             "thumb": {"score": tid, "edge": tedge, "contrast": tcontrast},
             "reasons": reasons,
+            "gate_scope": "final_crop",
+            "final_gate": {
+                "metric_set": "content_bbox",
+                "content": final_content,
+                "gate": final_content_gate,
+            },
+            "raw": {
+                "content": image_content,
+                "content_gate": input_content_gate,
+                "detect_method": face.get("method"),
+                "face_box": [round(v, 1) for v in face["box"]],
+            },
             "detect": {"method": face["method"], "conf": face["conf"],
                        "eye_source": face.get("eye_source"),
                        "profile": bool(face.get("profile")),
@@ -1876,11 +2141,16 @@ def main():
                           "style_coarse_metrics", "angle_coarse_check",
                           "bidirectional_angle_check", "confirm_gate",
                           "subject_cut_check", "canvas_frame_check",
+                          "content_whitespace_share_check", "head_cut_check",
+                          "content_head_fallback", "final_crop_gate",
                           "character_checklist_gate"],
             "unavailable": ["ocr_text", "nsfw", "emotion", "style_embedding", "anatomy",
                             "real_esrgan_superres"],
             "note": "风格闸门是粗指标（主色数/饱和度/边缘密度/背景平涂度），只能拦明显异体系，"
                     "不等于风格 embedding；截断与边框闸门也是像素启发式，不是语义分割；"
+                    "内容留白/主体占比/头顶平切闸门只在平涂背景可判定时生效，"
+                    "不可判定记 null，不当作通过；所有构图闸门在最终成品上重跑，"
+                    "manifest 同时记录原图(raw)与成品(final_gate)；"
                     "角色闸门依赖人工清单；无 OCR/NSFW/情绪/解剖/超分模型，"
                     "对应闸门记为 null。分数按可用维度(face_quality 40 + composition 60)归一化",
         },
@@ -1933,6 +2203,17 @@ def main():
             "-" if char_ok is None else ("PASS" if char_ok else "FAIL"),
             angle_txt, r.get("verdict", "ERROR"),
             ", ".join(r.get("reasons", [])) or "-"))
+    lines += ["", "| 图 | 上留白 | 下留白 | 主体占比 | 顶部平切比 | 内容闸门 |",
+              "|-|-|-|-|-|-|"]
+    for r in ranked:
+        fg = r.get("final_gate") or {}
+        c = fg.get("content") or {}
+        gate = fg.get("gate") or {}
+        lines.append("| %s | %s | %s | %s | %s | %s |" % (
+            r["id"], c.get("top_blank", "-"), c.get("bottom_blank", "-"),
+            c.get("share", "-"), c.get("top_run_ratio", "-"),
+            "n/a" if gate.get("passed") is None
+            else ("PASS" if gate.get("passed") else "FAIL")))
     lines += ["", "| 图 | 主色数 | 饱和度 | 边缘密度 | 背景占比 | 背景 stddev | 背景 |",
               "|-|-|-|-|-|-|-|"]
     for r in ranked:
