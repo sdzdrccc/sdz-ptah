@@ -1,6 +1,6 @@
 ---
 name: sdz-ptah-avatar
-description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left/right profiles, front, and faceless/armored (helmet/visor) characters with a head-contour metric set; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Reference-image generation is gated by backend capability detection (references/backends.json); unsupported backends fail with exit 4 rather than silently falling back to text2img. Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar, Satoshi 小智, and faceless armor suits. Not for scene art or real-person photos.
+description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left/right profiles, front, and faceless/armored (helmet/visor) characters with a head-contour metric set; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Reference-image driven generation is the default: one flat archived reference (`<prefix>-ref-N.png`, sha256 recorded in brief) is passed to backends that support it (Agnes image_to_image; no strength/seed/negative prompt, max 1 image), while backends without reference input (TRAE GenerateImage) fail with exit 4 unless the user explicitly consents to text2img (recorded as identity_unverified). Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar, Satoshi 小智, and faceless armor suits. Not for scene art or real-person photos.
 ---
 
 # SDZ Ptah Avatar（普塔头像）
@@ -42,10 +42,14 @@ description: Generate anime avatars from a style profile + character card + angl
 
 ## 硬约束（先读，违反则结果不可信）
 
-- 生成端只有 `GenerateImage` 一个入口：入参只有 `prompt` 与 `image_size`。
-  **没有 seed、负向词、参考图、批量参数**，同一 prompt 两次结果不同。
-  参考图能否参与生成取决于宿主/后端，必须先查 `references/backends.json` 的能力声明；
-  当前宿主不支持参考图入参时默认 `fallback=fail`、退出码 4，**不得静默退回文生图**。
+- **默认参考图驱动**：把用户给的角色参考图作为身份与画风的唯一权威，文字只描述
+  角度、构图与背景。参考图能力**按宿主区分**：TRAE 的 `GenerateImage` 入参只有
+  `prompt` 与 `image_size`（**不支持参考图**）；Agnes 宿主的
+  `agnes_aigc__image_to_image` 支持单张参考图（入参 `original_prompt` /
+  `enhanced_prompt` / `reference_image`，可选 `size` / `ratio`）。
+  i2i 硬限制：**无 strength、无 seed、无负向词、只能传 1 张参考图**。
+  不支持参考图时默认 `fallback=fail`、退出码 4，**不得静默退回文生图**；
+  只有用户显式同意才可 `text2img`，并记 `identity_unverified=true`。
 - 原生输出 1920×1920 JPEG。构图系统性偏下（实测眼睛在 0.40–0.45），
   **不要试图用提示词修构图**，一律交给裁切补偿。
 - **角度范围**：`profile_left`（鼻尖在左、耳朵在右）、`profile_right`（鼻尖在右、
@@ -53,8 +57,10 @@ description: Generate anime avatars from a style profile + character card + angl
   未指定默认朝左并在确认页提示**；用户可手动覆盖。正脸判据是双眼检出 +
   eye_y 0.24–0.38（正样本校准，不套侧脸 0.32–0.46）+ 眼线倾斜/双眼平衡达标。
   3/4、仰俯仍是 `reserved`，命中即 `angle_mismatch`，不产、不测、不实现。
-- **方向判不出时**（瞳孔/鼻尖侧/面罩信号缺失或冲突）→ `angle_undetermined`，
-  暂停请人工确认，不拿默认朝向顶替判定结果。
+- **方向判不出时**（瞳孔落在 0.42–0.58 中间带且鼻尖侧不可用、或两者冲突）→
+  `angle_undetermined`，暂停请人工确认，不拿默认朝向顶替判定结果。瞳孔落在
+  ≤0.42 / ≥0.58 的侧脸判定带时方向已确定，鼻尖侧只作交叉校验，不阻断；
+  瞳孔检不出但鼻尖侧可读时按鼻尖侧定方向（与期望相反记 `angle_mismatch`）。
 - **无脸/皮套模式（`face_mode=faceless`）**：不用眼部锚点裁切，改用头部/头盔整体
   轮廓；面部类指标（眼位、双侧对称、面部占比）不参与评分，改为头部轮廓占比 +
   上下留白 + 居中偏移，manifest 标 `metric_set=head_contour`、
@@ -175,9 +181,9 @@ description: Generate anime avatars from a style profile + character card + angl
 
 `/sdz-ptah-avatar` 或普通请求触发后，只做三件事：
 
-1. 读会话里的参考图（复制进订单 `refs/`）与文字说明；参考图**默认只读特征**——
-   能否作为生成入参取决于宿主/后端，须先查 `references/backends.json` 并检测，
-   不支持时不得假装已使用参考图；
+1. 读会话里的参考图（复制进订单目录根，命名 `<prefix>-ref-N.png`，并在
+   `brief.generation.reference_images` 记 `path` / `sha256` / `role`；
+   **完全平铺，不建 `refs/` 子目录**）与文字说明；
 2. 选风格（默认 `tv-anime-cel`；无脸/皮套用 `realistic-armor`）与角色卡
    （有则用，无则按描述建临时卡；无脸角色卡写 `face_mode=faceless`）；
 3. 解析性别与默认朝向，写 `<订单目录>/brief.draft.json`（含 `order_id`、
@@ -187,7 +193,8 @@ description: Generate anime avatars from a style profile + character card + angl
 字段见 `references/protocol.md` 第 1 节。默认值：`size=1024`、`count=2`
 （上限为预算）、`budget=10`、`view=profile`、`face_mode=faced`。
 需要参考图时在 brief 写 `generation` 块（`backend` / `mode` / `reference_images[]` /
-`strength` / `fallback`），并在确认页明确「当前后端是否支持参考图、不支持时的处理」。
+`strength` / `fallback` / `text2img_consent`），并在确认页明确「当前宿主是否支持参考图、
+不支持时的处理」。归档用 `confirm_order.py --reference <路径>`，不要手工复制。
 
 **朝向默认规则**：
 
@@ -210,7 +217,8 @@ description: Generate anime avatars from a style profile + character card + angl
 
 ```powershell
 py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
-  --confirm "确认生成" --source card
+  --confirm "确认生成" --source card `
+  --reference "<角色参考图路径>"
 ```
 
 确认块写入前会补默认值并校验；**没有 `confirm.confirmed=true` 一律不得生成**。
@@ -232,21 +240,33 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 朝左：鼻尖在左、耳朵在右；朝右：鼻尖在右、耳朵在左；鼻梁另一侧不画第二只眼、
 眼白或眉毛）。prompt 与实际角度写入 `prompts.json`。
 
+**参考图模式**下第 1–2 步压缩：角色块只写「与 `<image 1>` 一致」，并把固定句
+`<image 1> 是身份与画风的唯一权威，只改角度、构图与背景。` 放在两段提示词开头
+（英文段见 protocol 3.2）；第 3–4 步照旧。文字不要再抢着描述发型/服装细节。
+
 ### 4. 限量出图（先算预算）
 
 - 首轮张数以 `brief.count` 为准（默认 2，上限为预算）；需要变体时最多再 1 张。
-- **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true` 才可调用
-  `GenerateImage`；没有确认块就回第二段确认页，不许直接抽。
+- **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true` 才可调用生成工具；
+  没有确认块就回第二段确认页，不许直接抽。
+- **参考图模式（默认）**：按宿主选择工具——TRAE 用 `GenerateImage`（不支持参考图，
+  只能走 text2img 且需用户显式同意）；Agnes 用 `agnes_aigc__image_to_image`，
+  传 `original_prompt`（中文）+ `enhanced_prompt`（英文）+ `reference_image`
+  （订单目录里的 `<prefix>-ref-1.png`）。两段提示词都以固定句开头：
+  `<image 1> 是身份与画风的唯一权威，只改角度、构图与背景。`（英文见 protocol 3.2）。
+  **不要传 strength、seed、负向词；参考图最多 1 张。**
 - 整单不超过 `--budget`（默认 10），且**按当前订单累计**。生成前先跑
-  `rounds.py --check`；余额 ≤0 必须停下说明「预算用尽」并等用户决定是否追加，
-  追加确认后才用 `--budget N` 调大，不许静默超额。
+  `rounds.py --reconcile` 补账、再跑 `rounds.py --check`；余额 ≤0 必须停下说明
+  「预算用尽」并等用户决定是否追加，追加确认后才用 `--budget N` 调大，不许静默超额。
 - 调用前在 `status.json` 记 `budget.limit`；每成功生成一张，`used += 1`、
   `remaining -= 1`，并与 `raw_count` 同步，不要事后补账。
 - `image_size`: `square`；`path`: 绝对路径、**不带扩展名**，先落临时中转目录，
   文件名用 `<angle>_v1_r1` 区分角度/变体（轮次仍由元数据记录），
   生成后立即 `Move` 到 `<订单目录>/`，不允许把原图留在 `%TEMP%`；
   进目录后由流水线统一改名为 `<前缀>-avatar-<N>-src.<ext>`。
-- 生成前先 `ToolSearch` 取 `GenerateImage` 的 schema，再用 `DeferExecuteTool` 调用。
+- 生成前先 `ToolSearch` 取实际生成工具的 schema（TRAE `GenerateImage` / Agnes
+  `agnes_aigc__image_to_image`），再用 `DeferExecuteTool` 调用；schema 里没有的入参
+  一律不传，不要伪造 `image_paths` / `strength` / `seed`。
   每次调用后核对文件存在且可打开；打不开记为失败，不继续算分。
 - 出图后先放大到 800px 看鼻梁后方，出现第二只眼/眼白直接弃用，
   不进入评分。重抽最多 1 张，且必须换「远眼不可见」的措辞。
@@ -276,8 +296,9 @@ py -3 "$skill\scripts\avatar_pipeline.py" `
 - `--prefix` 指定文件名前缀；缺省取角色卡 `character_id`、`brief.character_id`，
   再退到目录里已有前缀（都没有才用 `avatar`）。
 - 无脸/皮套单改为 `--face-mode faceless --style references/styles/realistic-armor.json
-  --character references/characters/fox-armor.json`；需要参考图时加 `--references` 并在
-  brief 写 `generation` 块，脚本先做后端能力检测。
+  --character references/characters/fox-armor.json`；参考图由
+  `confirm_order.py --reference` 归档并记账，流水线按 brief 记录读取并核对 sha256，
+  不再扫描 `refs/`。
 
 - `--formats` 取 `1024` / `2k` / `4k` 的逗号组合；`--jpg` 额外导出压缩版，
   `--jpg-quality` 默认 88。只有用户明确要 2K/4K/JPG 时才传对应参数，
@@ -405,8 +426,10 @@ py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
   非平涂底记 `null` 并由人眼复核，不把「算不出」当成通过。
 - 角度判定覆盖侧脸双向、正脸与无脸面罩；单眼判定可能把「远眼没检出的 3/4 脸」当成侧脸，
   正脸眼位区间又不能套侧脸，所以 800px 人工查第二只眼仍是必做步骤。
-- 参考图能否参与生成取决于宿主/后端，不由本 skill 保证；`trae-generateimage` 当前
-  不支持参考图入参。换宿主后必须重跑 `backends.json` 能力检测，不能沿用旧结论。
+- 参考图能力按宿主区分，不由本 skill 保证：`trae-generateimage` **不支持**参考图入参；
+  `agnes-aigc-img2img`（Agnes `image_to_image`）支持单张参考图，但无 strength/seed/
+  负向词。换宿主后必须重跑 `backends.json` 能力检测，不能沿用旧结论。
+  `identity_unverified=false` 只有在「后端支持 + 本单参考图可读 + sha256 对得上」时成立。
   无 embedding 模型时身份相似度只能记 `null` + 人工清单，不能拿色板相似度冒充。
 
 ## 边界

@@ -1,17 +1,41 @@
 {
   "schema": "generation-backends/1.0",
-  "version": "1.0.0",
-  "host_note": "参考图能力取决于宿主与后端，不是本 skill 的固有属性。装到别的宿主或换后端时必须重新跑一次能力检测（scripts/avatar_pipeline.py 会在评分前检查 --backends 或 brief.generation），不得沿用上一单的结论。",
+  "version": "1.1.0",
+  "default_backend": "agnes-aigc-img2img",
+  "host_note": "参考图能力取决于宿主与后端，不是本 skill 的固有属性。TRAE 的 GenerateImage 只有 prompt/image_size；Agnes 宿主暴露 agnes_aigc__image_to_image，支持单张参考图。装到别的宿主或换后端时必须重新跑一次能力检测（scripts/avatar_pipeline.py 会在评分前检查 --backends 或 brief.generation），不得沿用上一单的结论。",
   "fallback_policy": {
     "default": "fail",
-    "text2img": "只有用户显式同意 fallback=text2img 才允许退回；manifest 记 identity_unverified=true，报告必须显著标注，禁止静默退回",
+    "text2img": "只有用户显式同意才允许关闭参考图；brief.generation.text2img_consent=true 才放行，manifest 记 identity_unverified=true，报告必须显著标注，禁止静默退回",
     "exit_code": 4
   },
   "backends": [
     {
+      "id": "agnes-aigc-img2img",
+      "display_name": "Agnes AIGC image_to_image",
+      "available": true,
+      "verified": false,
+      "params": ["original_prompt", "enhanced_prompt", "reference_image", "size", "ratio"],
+      "reference_images": {
+        "supported": true,
+        "max": 1,
+        "roles": ["identity"],
+        "param": "reference_image",
+        "strength_range": null
+      },
+      "limits": {
+        "strength": false,
+        "seed": false,
+        "negative_prompt": false,
+        "batch": false,
+        "reference_formats": ["https_url", "local_path", "metadata_json", "data_uri"]
+      },
+      "note": "Agnes 宿主真实工具 agnes_aigc__image_to_image：必需入参 original_prompt / enhanced_prompt / reference_image；可选 size / ratio。无 strength、无 seed、无负向词，只能传 1 张参考图。verified=false：尚未在 Agnes 侧真跑过一次并回传产物，identity 一致性与画风保真都还没有实证；真跑通过后改成 true。"
+    },
+    {
       "id": "trae-generateimage",
       "display_name": "TRAE GenerateImage",
       "available": true,
+      "verified": true,
       "params": ["prompt", "image_size"],
       "reference_images": {
         "supported": false,
@@ -19,17 +43,19 @@
         "roles": [],
         "strength_range": null
       },
-      "note": "当前宿主实测只有 prompt 与 image_size 两个入参：没有 seed、负向词、参考图或批量参数。参考图只能用于读特征，不能当作生成条件。"
+      "note": "TRAE 宿主实测只有 prompt 与 image_size 两个入参：没有 seed、负向词、参考图或批量参数。参考图只能用于读特征，不能当作生成条件；参考图模式必须换 Agnes 后端，或由用户显式同意 text2img。"
     },
     {
       "id": "sdxl-img2img-ref",
       "display_name": "SDXL img2img + IP-Adapter（参考图后端示例）",
       "available": false,
+      "verified": false,
       "params": ["prompt", "image_size", "reference_images", "strength", "negative_prompt"],
       "reference_images": {
         "supported": true,
         "max": 4,
         "roles": ["style", "identity", "outfit"],
+        "param": "reference_images",
         "strength_range": [0.2, 0.9]
       },
       "note": "能力位示例，本机未接入；available=false 时流水线会拒绝执行，不能把示例当成可用后端。"

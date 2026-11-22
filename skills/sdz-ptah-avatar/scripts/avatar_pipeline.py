@@ -12,6 +12,7 @@
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -22,7 +23,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.10.0"
+VERSION = "1.11.0"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -89,7 +90,9 @@ TOP_BLANK_MIN = 0.015            # 成品上留白下限（原图有空间时才
 TOP_BLANK_MAX = 0.16             # 成品上留白上限
 BOTTOM_BLANK_MAX = 0.18          # 成品下留白上限（胸像可贴底）
 SUBJECT_SHARE_MIN = 0.40         # 内容框面积 / 画布面积 下限
-SUBJECT_SHARE_MAX = 0.95
+# 满出血头像的主体可以几乎铺满画布（实测 0.953 是正常紧构图，不是缺陷）。
+# 上限只用来拦「整张都是主体、找不到背景」的失控图，放到 0.985。
+SUBJECT_SHARE_MAX = 0.985
 HEAD_CUT_RUN_RATIO = 0.22        # 内容最高行最长连续段 / 内容宽，超过视为平切头
 # 无脸/皮套模式：不用眼部锚点，改用头部/头盔整体轮廓。
 # 比例阈值以极狐 6 张（1024²，头宽约 0.30–0.32 画面宽）校准：
@@ -113,6 +116,10 @@ EYE_MIN, EYE_MAX = 0.12, 0.36
 # 目标 0.40。旧档 0.28~0.50 过宽、目标 0.44 偏下，会把「眼位偏低」的图放过。
 PROFILE_EYE_MIN, PROFILE_EYE_MAX = 0.32, 0.46
 PROFILE_EYE_TARGET = 0.40
+# 侧脸方向判定带：瞳孔落在左带/右带时方向已经确定，不再要求鼻尖侧
+# （肤色重心落中线是常见情况，旧逻辑会把它误判成 angle_undetermined）。
+PROFILE_LEFT_MAX = 0.42
+PROFILE_RIGHT_MIN = 0.58
 CONF_MIN = 0.40
 THUMB_MIN = 0.35
 BLUR_MIN = 8.0                       # 面部锐度下限（LOG 前的原始 stddev）
@@ -500,6 +507,8 @@ def _content_analysis(img, work=CONTENT_WORK, tol=CONTENT_TOL):
         corners.append(vals)
     allv = [p for c in corners for p in c]
     bg = tuple(sorted(p[i] for p in allv)[len(allv) // 2] for i in range(3))
+    cmean = [[sum(p[i] for p in c) / float(len(c)) for i in range(3)]
+             for c in corners]           # TL, TR, BL, BR
     flat = True
     for c in corners:
         for i in range(3):
@@ -508,20 +517,30 @@ def _content_analysis(img, work=CONTENT_WORK, tol=CONTENT_TOL):
             if math.sqrt(var) > CONTENT_FLAT_STD:
                 flat = False
 
-    def is_bg(c):
-        return (abs(c[0] - bg[0]) + abs(c[1] - bg[1])
-                + abs(c[2] - bg[2])) <= tol
+    # 非平涂时用四角双线性插值估背景：轻渐变/柔和打光背景也能分离主体，
+    # 避免 final gate 因为「背景不是平涂」直接被跳过（实测两张渐变底都没跑闸门）。
+    def bg_at(x, y):
+        u = x / float(max(1, w - 1))
+        v = y / float(max(1, h - 1))
+        top = [cmean[0][i] * (1 - u) + cmean[1][i] * u for i in range(3)]
+        bot = [cmean[2][i] * (1 - u) + cmean[3][i] * u for i in range(3)]
+        return [top[i] * (1 - v) + bot[i] * v for i in range(3)]
+
+    def is_bg(c, x=0, y=0):
+        ref = bg if flat else bg_at(x, y)
+        return (abs(c[0] - ref[0]) + abs(c[1] - ref[1])
+                + abs(c[2] - ref[2])) <= tol
 
     seen = [[False] * w for _ in range(h)]
     q = deque()
     for x in range(w):
         for y in (0, h - 1):
-            if not seen[y][x] and is_bg(px[x, y]):
+            if not seen[y][x] and is_bg(px[x, y], x, y):
                 seen[y][x] = True
                 q.append((x, y))
     for y in range(h):
         for x in (0, w - 1):
-            if not seen[y][x] and is_bg(px[x, y]):
+            if not seen[y][x] and is_bg(px[x, y], x, y):
                 seen[y][x] = True
                 q.append((x, y))
     while q:
@@ -529,7 +548,7 @@ def _content_analysis(img, work=CONTENT_WORK, tol=CONTENT_TOL):
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nx, ny = x + dx, y + dy
             if 0 <= nx < w and 0 <= ny < h and not seen[ny][nx] \
-                    and is_bg(px[nx, ny]):
+                    and is_bg(px[nx, ny], nx, ny):
                 seen[ny][nx] = True
                 q.append((nx, ny))
     bg_hits = sum(1 for row in seen for v in row if v)
@@ -553,14 +572,16 @@ def _content_analysis(img, work=CONTENT_WORK, tol=CONTENT_TOL):
     content_w = max(1, x1 - x0 + 1)
     share = content_w * (y1 - y0 + 1) / float(w * h)
     sx, sy = W / float(w), H / float(h)
-    reliable = bool(flat and bg_share >= CONTENT_BG_SHARE_MIN
+    reliable = bool(bg_share >= CONTENT_BG_SHARE_MIN
                     and share >= CONTENT_SHARE_MIN)
     return {
         "applied": True,
         "reliable": reliable,
         "empty": False,
         "flat": bool(flat),
+        "bg_model": "flat" if flat else "gradient",
         "bg": list(bg),
+        "bg_corners": cmean,
         "bg_share": round(bg_share, 3),
         "bbox": [round(x0 * sx, 1), round(y0 * sy, 1),
                  round((x1 + 1) * sx, 1), round((y1 + 1) * sy, 1)],
@@ -625,10 +646,21 @@ def _content_head(img, content=None):
     small = img.convert("RGB").resize((work, h), Image.BILINEAR)
     px = small.load()
     bg = tuple(info.get("bg") or (255, 255, 255))
+    corners_mean = info.get("bg_corners")
 
-    def is_bg(c):
-        return (abs(c[0] - bg[0]) + abs(c[1] - bg[1])
-                + abs(c[2] - bg[2])) <= CONTENT_TOL
+    def is_bg(c, x=0, y=0):
+        if corners_mean:
+            u = x / float(max(1, work - 1))
+            v = y / float(max(1, h - 1))
+            top = [corners_mean[0][i] * (1 - u) + corners_mean[1][i] * u
+                   for i in range(3)]
+            bot = [corners_mean[2][i] * (1 - u) + corners_mean[3][i] * u
+                   for i in range(3)]
+            ref = [top[i] * (1 - v) + bot[i] * v for i in range(3)]
+        else:
+            ref = bg
+        return (abs(c[0] - ref[0]) + abs(c[1] - ref[1])
+                + abs(c[2] - ref[2])) <= CONTENT_TOL
 
     sx, sy = W / float(work), H / float(h)
     y_limit = int(clamp(band_bottom / sy, 0, h - 1))
@@ -636,7 +668,7 @@ def _content_head(img, content=None):
     for y in range(int(clamp(top / sy, 0, h - 1)), y_limit + 1):
         start = None
         for x in range(work + 1):
-            solid = x < work and not is_bg(px[x, y])
+            solid = x < work and not is_bg(px[x, y], x, y)
             if solid and start is None:
                 start = x
             elif not solid and start is not None:
@@ -1267,7 +1299,11 @@ def score_crop(img, crop, face, image_content=None):
     s = right - left
     fx, fy, fw, fh = face["box"]
     eye_y = face["eye_y"]
-    face_ratio = (fw * fh) / (0.785 * s * s)
+    # 脸框可能有一部分落在裁切框外：先求与裁切框的交集，再算占比。
+    # 直接用整张脸框面积会算出 >1 的占比（实测 1.253/1.125），导致闸门失真。
+    ix = max(0.0, min(fx + fw, right) - max(fx, left))
+    iy = max(0.0, min(fy + fh, bottom) - max(fy, top))
+    face_ratio = clamp((ix * iy) / (0.785 * s * s), 0.0, 1.0)
     eye_center_y = (eye_y - top) / s
     margins = [fx - left, right - (fx + fw), fy - top, bottom - (fy + fh)]
     margin = min(margins) / s
@@ -1276,10 +1312,11 @@ def score_crop(img, crop, face, image_content=None):
     edge = _edge_cut(region)
     content = _content_analysis(region)
     content_gate = _content_gate(content, image_content)
-    # subject_cut 只在平涂背景可判定时生效：写实场景/渐变/模糊背景的边圈
-    # 不全是背景，贴边连续段会被误当主体（实测 adam 背景非平涂时左右误判）。
-    # 不可靠时记 null、不判死，而不是拿不可靠的边圈当截断证据。
-    cut_trust = bool(content.get("applied") and content.get("reliable"))
+    # subject_cut 只在平涂背景可判定时生效：渐变/写实场景的边圈不全是背景，
+    # 贴边连续段会被误当主体（实测渐变底会误判）。gradient 只用于 final gate
+    # 的留白/占比，不参与截断判死。
+    cut_trust = bool(content.get("applied") and content.get("reliable")
+                     and content.get("flat"))
     cut_hard = ([e for e in CUT_HARD_EDGES if edge.get(e, {}).get("cut")]
                 if cut_trust else [])
 
@@ -1503,10 +1540,11 @@ def score_crop_faceless(img, crop, head, image_content=None):
     edge = _edge_cut(region)
     content = _content_analysis(region)
     content_gate = _content_gate(content, image_content)
-    # subject_cut 只在平涂背景可判定时生效：写实场景/渐变/模糊背景的边圈
-    # 不全是背景，贴边连续段会被误当主体（实测 adam 背景非平涂时左右误判）。
-    # 不可靠时记 null、不判死，而不是拿不可靠的边圈当截断证据。
-    cut_trust = bool(content.get("applied") and content.get("reliable"))
+    # subject_cut 只在平涂背景可判定时生效：渐变/写实场景的边圈不全是背景，
+    # 贴边连续段会被误当主体（实测渐变底会误判）。gradient 只用于 final gate
+    # 的留白/占比，不参与截断判死。
+    cut_trust = bool(content.get("applied") and content.get("reliable")
+                     and content.get("flat"))
     cut_hard = ([e for e in CUT_HARD_EDGES if edge.get(e, {}).get("cut")]
                 if cut_trust else [])
 
@@ -1695,6 +1733,8 @@ def flat_sources(order_dir):
             continue
         if is_sheet_name(name):
             continue
+        if re.match(r".+-ref-\d+\.[A-Za-z0-9]+$", name, re.I):
+            continue          # 参考图是生成入参，不是待评分原图
         if _FLAT_EXPORT.match(name) or _FLAT_FINAL.match(name):
             continue
         names.append(name)
@@ -1865,6 +1905,12 @@ def _background_stats(img, tol=50):
 
     比「外圈 stddev」稳：紧构图头像的边圈常是头发/衣服，外圈法会把角色误当背景。
     """
+    # 轻渐变背景：四角双线性模型能可靠分离主体时判 gradient，
+    # 不再因为「不是平涂」直接算 busy（style profile 明确允许 soft_gradient）。
+    info = _content_analysis(img)
+    if (info.get("applied") and info.get("reliable")
+            and info.get("bg_model") == "gradient" and not info.get("empty")):
+        return info.get("bg_share", 0.0), 0.0, "gradient"
     w, h = img.size
     px = img.convert("RGB").load()
     bg = _corner_color(img)
@@ -1931,6 +1977,34 @@ def style_metrics(img):
     saturation = round(s_sum / (255.0 * s_cnt), 3) if s_cnt else 0.0
 
     g = img.convert("L").resize((512, 512), Image.BILINEAR)
+    hist = img.convert("L").histogram()
+    total_px = float(w * h)
+
+    def _pct(p):
+        target, acc = total_px * p, 0
+        for i, c in enumerate(hist):
+            acc += c
+            if acc >= target:
+                return i / 255.0
+        return 1.0
+
+    value_p50, value_p90 = round(_pct(0.50), 3), round(_pct(0.90), 3)
+    near_white_share = round(sum(hist[245:]) / total_px, 3) if total_px else 0.0
+
+    # 硬边/软边比：赛璐璐以硬边色块为主、软过渡极少；写实厚涂反之。
+    # 用相邻像素梯度计数，hard=明显台阶，soft=中间过渡，比值越大越「硬」。
+    gp = g.load()
+    hard = soft = 0
+    for y in range(511):
+        for x in range(511):
+            v = gp[x, y]
+            d = max(abs(gp[x + 1, y] - v), abs(gp[x, y + 1] - v))
+            if d >= 40:
+                hard += 1
+            elif d >= 8:
+                soft += 1
+    hard_soft_ratio = round(hard / float(max(1, soft)), 3)
+
     edge = g.filter(ImageFilter.FIND_EDGES)
     ep = edge.load()
     hit = 0
@@ -1946,6 +2020,10 @@ def style_metrics(img):
         "palette_top": top,
         "saturation": saturation,
         "edge_density": edge_density,
+        "value_p50": value_p50,
+        "value_p90": value_p90,
+        "hard_soft_ratio": hard_soft_ratio,
+        "near_white_share": near_white_share,
         "background_share": round(bg_share, 3),
         "background_stddev": round(bg_std, 1),
         "background_mode": bg_mode,
@@ -1969,9 +2047,23 @@ def check_style(metrics, profile):
     checks["saturation"] = lo <= metrics["saturation"] <= hi
     lo, hi = gate.get("edge_density", [0.0, 1.0])
     checks["edge_density"] = lo <= metrics["edge_density"] <= hi
-    checks["background"] = (metrics["background_stddev"] <= gate.get("background_stddev_max", 999)
-                            and metrics["background_mode"] in gate.get("background_modes",
-                                                                       ["flat", "simple", "busy"]))
+    if gate.get("value_p50"):
+        lo, hi = gate["value_p50"]
+        checks["value_p50"] = lo <= metrics["value_p50"] <= hi
+    if gate.get("hard_soft_ratio_max") is not None:
+        checks["hard_soft_ratio"] = (metrics["hard_soft_ratio"]
+                                     <= gate["hard_soft_ratio_max"])
+    if gate.get("near_white_share_max") is not None:
+        checks["near_white_share"] = (metrics["near_white_share"]
+                                      <= gate["near_white_share_max"])
+    if metrics.get("background_mode") == "gradient":
+        # 轻渐变是风格档案允许的交付背景；明度波动不再按平涂口径卡。
+        checks["background"] = True
+    else:
+        checks["background"] = (
+            metrics["background_stddev"] <= gate.get("background_stddev_max", 999)
+            and metrics["background_mode"] in gate.get("background_modes",
+                                                        ["flat", "simple", "busy"]))
     reasons = ["style_mismatch:" + k for k, ok in checks.items() if not ok]
     return {"style_id": profile.get("style_id"), "passed": not reasons,
             "checks": checks, "reasons": reasons}
@@ -2183,18 +2275,17 @@ def check_angle(expected_id, detected, metrics, matrix):
     if ey is not None:
         elo, ehi = angle.get("eye_y", [0.0, 1.0])
         checks["eye_y"] = elo <= ey <= ehi
-    # 方向必须能判出来：瞳孔/鼻尖侧缺失或冲突时不算通过。
-    # 例外：瞳孔横向位置极度偏向一侧（≤0.12 / ≥0.88）时方向已经确定，
-    # 鼻尖交叉校验不可用（肤色重心落在中线）不应把明确方向判成未定；
+    # 方向必须能判出来：瞳孔落在侧脸判定带内时方向已确定，不要求鼻尖侧；
+    # 瞳孔居中（0.42–0.58）且鼻尖侧不可用时仍判 angle_undetermined，不猜。
     # 鼻尖与瞳孔冲突时 facing 本身为 None，仍判 angle_undetermined。
-    # 其余 None（眼位算不出等）仍视为不可判定，不放水。
+    band_ok = pe is not None and (pe <= PROFILE_LEFT_MAX or pe >= PROFILE_RIGHT_MIN)
     strong_pupil = pe is not None and (pe <= 0.12 or pe >= 0.88)
+    nose_not_required = strong_pupil or band_ok
     evaluated = {k: v for k, v in checks.items()
-                 if not (k == "nose_side" and v is None and strong_pupil)}
+                 if not (k == "nose_side" and v is None and nose_not_required)}
     passed = all(v is True for v in evaluated.values())
-    direction_known = (pe is not None and facing in ("left", "right")
-                       and (nose in ("left", "right")
-                            or (nose is None and strong_pupil)))
+    direction_known = (facing in ("left", "right")
+                       and (nose in ("left", "right") or nose_not_required))
     if passed:
         reason = None
     elif not direction_known:
@@ -2265,6 +2356,27 @@ def normalize_brief(brief, card, budget):
         face_mode = "faced"
     out["face_mode"] = face_mode
 
+    # 生成模式：参考图驱动为默认；text2img 必须由用户显式同意
+    gen = dict(out.get("generation") or {})
+    mode = gen.get("mode") or "reference"
+    if mode not in ("reference", "text2img"):
+        errors.append("generation.mode 只能是 reference / text2img")
+        mode = "reference"
+    if mode == "text2img" and gen.get("text2img_consent") is not True:
+        errors.append("mode=text2img 需要用户显式同意"
+                      "（generation.text2img_consent=true）")
+    if mode == "reference" and not (gen.get("reference_images") or []):
+        errors.append("参考图模式必须先归档参考图并在 "
+                      "generation.reference_images 记账（见 confirm_order.py --reference）")
+    out["generation"] = {
+        "backend": gen.get("backend") or "agnes-aigc-img2img",
+        "mode": mode,
+        "reference_images": gen.get("reference_images") or [],
+        "strength": None if gen.get("strength") is None else gen.get("strength"),
+        "fallback": gen.get("fallback") or "fail",
+        "text2img_consent": gen.get("text2img_consent") is True,
+    }
+
     out["size"] = str(out.get("size") or "1024")
     out["formats"] = out.get("formats") or [out["size"]]
     try:
@@ -2294,14 +2406,21 @@ def check_character(checklist, card):
     """人工核对清单：必填项未勾选即不得放行；未提供清单记 null。"""
     if not checklist or not card:
         return None
-    items = checklist.get("items") or {}
+    raw = checklist.get("items") or {}
+    if isinstance(raw, list):
+        items = {it.get("key"): it for it in raw if isinstance(it, dict)}
+    elif isinstance(raw, dict):
+        items = raw
+    else:
+        items = {}
     results, missing = [], []
     for item in card.get("checklist", []):
         key = item.get("key")
-        ok = bool((items.get(key) or {}).get("ok"))
+        entry = items.get(key) or {}
+        ok = bool(entry.get("ok", entry.get("checked")))
         results.append({"key": key, "label": item.get("label"),
                         "required": bool(item.get("required")), "ok": ok,
-                        "note": (items.get(key) or {}).get("note")})
+                        "note": entry.get("note")})
         if item.get("required") and not ok:
             missing.append(key)
     return {"character_id": card.get("character_id"), "passed": not missing,
@@ -2327,38 +2446,99 @@ def _palette_hist(img, bins=4):
     return [v / total for v in hist]
 
 
+def _subject_hsv(img):
+    """主体区域（内容框内，退化为中央 70%）的 HSV 均值，用于参考图对照。
+
+    只做颜色/明度统计，不是身份或风格 embedding。
+    """
+    info = _content_analysis(img)
+    if info.get("applied") and info.get("reliable") and not info.get("empty"):
+        x0, y0, x1, y1 = [int(round(v)) for v in info["bbox"]]
+        crop = img.crop((max(0, x0), max(0, y0),
+                         min(img.width, x1), min(img.height, y1)))
+    else:
+        W, H = img.size
+        crop = img.crop((int(W * 0.15), int(H * 0.10),
+                         int(W * 0.85), int(H * 0.95)))
+    if crop.width < 4 or crop.height < 4:
+        crop = img
+    small = crop.convert("HSV").resize((96, 96), Image.BILINEAR)
+    px = small.load()
+    hx = hy = s_sum = v_sum = cnt = 0.0
+    for y in range(96):
+        for x in range(96):
+            h, s, v = px[x, y]
+            if v < 30:
+                continue
+            rad = h / 255.0 * 2 * math.pi
+            hx += math.cos(rad) * s
+            hy += math.sin(rad) * s
+            s_sum += s
+            v_sum += v
+            cnt += 1
+    if not cnt:
+        return {"h": None, "s": 0.0, "v": 0.0}
+    hue = (math.atan2(hy, hx) % (2 * math.pi)) / (2 * math.pi) * 360.0
+    return {"h": round(hue, 1), "s": round(s_sum / (255.0 * cnt), 3),
+            "v": round(v_sum / (255.0 * cnt), 3)}
+
+
 def reference_similarity(img, refs):
-    """参考图相似度：风格可算（色板/饱和度/边缘密度），身份无模型记 null。"""
+    """参考图相似度：色板 + 主体 HSV + 边缘密度 + 明度，身份无模型记 null。"""
     if not refs:
         return None
     base_hist = _palette_hist(img)
     base = style_metrics(img)
+    base_hsv = _subject_hsv(img)
     items = []
     for ref in refs:
         rimg = ref["image"]
         rmet = style_metrics(rimg)
+        rhsv = _subject_hsv(rimg)
         inter = sum(min(a, b) for a, b in zip(base_hist, _palette_hist(rimg)))
         sat_sim = 1 - clamp(abs(base["saturation"] - rmet["saturation"]) / 0.35, 0, 1)
         edge_sim = 1 - clamp(abs(base["edge_density"] - rmet["edge_density"]) / 0.12, 0, 1)
-        style_sim = 0.50 * inter + 0.25 * sat_sim + 0.25 * edge_sim
+        value_sim = 1 - clamp(abs(base["value_p50"] - rmet["value_p50"]) / 0.30, 0, 1)
+        if base_hsv["h"] is not None and rhsv["h"] is not None:
+            dh = abs(base_hsv["h"] - rhsv["h"])
+            dh = min(dh, 360.0 - dh) / 180.0
+            ds = abs(base_hsv["s"] - rhsv["s"])
+            dv = abs(base_hsv["v"] - rhsv["v"])
+            subject_sim = 1 - clamp(0.50 * dh + 0.30 * ds + 0.20 * dv, 0, 1)
+        else:
+            dh = ds = dv = None
+            subject_sim = 0.0
+        style_sim = (0.40 * inter + 0.25 * subject_sim
+                     + 0.20 * edge_sim + 0.15 * value_sim)
         items.append({
             "path": ref.get("path"), "role": ref.get("role"),
+            "sha256": ref.get("sha256"),
             "palette_intersection": round(inter, 3),
+            "subject_hsv_delta": (None if dh is None else
+                                  {"h_deg": round(dh * 180.0, 1),
+                                   "s": round(ds, 3), "v": round(dv, 3)}),
+            "subject_similarity": round(subject_sim, 3),
             "saturation_delta": round(abs(base["saturation"] - rmet["saturation"]), 3),
             "edge_density_delta": round(abs(base["edge_density"] - rmet["edge_density"]), 3),
+            "value_p50_delta": round(abs(base["value_p50"] - rmet["value_p50"]), 3),
+            "value_similarity": round(value_sim, 3),
             "style_similarity": round(style_sim, 3),
         })
     mean_style = sum(i["style_similarity"] for i in items) / len(items)
     return {
         "style_similarity": round(mean_style, 3),
+        "subject_similarity": round(sum(i["subject_similarity"] for i in items)
+                                    / len(items), 3),
         "identity_similarity": None,
         "identity_note": ("无身份 embedding 模型，identity 相似度记 null；"
-                          "不能用色板相似度冒充身份一致，请按人工清单核对"),
-        "manual_identity_checklist": ["发型/耳鳍轮廓", "头盔/面罩形状", "装甲配色分区",
-                                      "胸口或肩部标识", "身材比例与年龄感"],
+                          "不能用色板/主体 HSV 相似度冒充身份一致，请按人工清单核对"),
+        "manual_identity_checklist": ["发型/发绺走向", "头饰/帽型与徽标",
+                                      "服装配色与领口", "标志性细节（如脸颊纹）",
+                                      "肤色与年龄感"],
         "per_reference": items,
         "informational": mean_style < REF_STYLE_INFORMATIONAL,
-        "note": "style_similarity 只比较可算的像素统计，不是风格/身份 embedding",
+        "note": "style_similarity 只比较色板/主体 HSV/边缘/明度的像素统计，"
+                "不是风格或身份 embedding",
     }
 
 
@@ -2372,16 +2552,31 @@ def default_angles_path():
     return os.path.join(root, "references", "angles.json")
 
 
-def check_generation(gen, registry):
-    """调用前能力检测：后端不支持参考图时默认 fail，绝不静默退回文生图。"""
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_generation(gen, registry, refs=None, order_dir=None):
+    """调用前能力检测：核对后端能力，并核对本单是否真的把参考图传了进去。
+
+    `identity_unverified=false` 只在「后端声明支持参考图 + 本单参考图可读 +
+    sha256 与 brief 记录一致」时成立；否则一律 true，绝不假绿。
+    text2img 只有在 `generation.text2img_consent=true` 时才放行。
+    """
     if not gen:
         return None
     backends = {b.get("id"): b for b in (registry or {}).get("backends", [])}
     bid = gen.get("backend")
     backend = backends.get(bid)
-    refs = gen.get("reference_images") or []
-    mode = gen.get("mode") or ("reference" if refs else "text2img")
+    refs = refs or []
+    declared = gen.get("reference_images") or []
+    mode = gen.get("mode") or ("reference" if declared else "text2img")
     fallback = gen.get("fallback") or "fail"
+    consent = gen.get("text2img_consent") is True
     ref_cap = (backend or {}).get("reference_images") or {}
     supported = bool(ref_cap.get("supported"))
     max_refs = int(ref_cap.get("max") or 0)
@@ -2391,31 +2586,75 @@ def check_generation(gen, registry):
                       % bid)
     elif backend.get("available") is False:
         errors.append("后端 %r 未接入（available=false），不得当作可用" % bid)
-    if (mode == "reference" or refs) and not supported:
-        if fallback == "text2img":
-            warnings.append("后端 %r 不支持参考图入参，按用户显式同意退回 text2img；"
-                            "本单 identity_unverified=true，报告中必须显著标注"
-                            % bid)
-        else:
-            errors.append("后端 %r 未暴露参考图入参，默认 fallback=fail："
-                          "不得调用生成，也不得静默退回文生图" % bid)
-    if refs and max_refs and len(refs) > max_refs:
-        errors.append("参考图 %d 张超过后端上限 %d 张" % (len(refs), max_refs))
+
+    if mode not in ("reference", "text2img"):
+        errors.append("generation.mode 只能是 reference / text2img，收到 %r" % mode)
+
+    if mode == "reference":
+        if not supported:
+            if fallback == "text2img" and consent:
+                warnings.append("后端 %r 不支持参考图入参，按用户显式同意关闭参考图；"
+                                "本单 identity_unverified=true，报告中必须显著标注"
+                                % bid)
+            else:
+                errors.append("后端 %r 未暴露参考图入参，默认 fallback=fail："
+                              "不得调用生成，也不得静默退回文生图" % bid)
+        if not declared and not refs:
+            errors.append("mode=reference 但 brief.generation.reference_images 为空："
+                          "参考图模式必须先把参考图归档进订单目录并记账")
+        if max_refs and len(declared or refs) > max_refs:
+            errors.append("参考图 %d 张超过后端上限 %d 张"
+                          % (len(declared or refs), max_refs))
+    elif mode == "text2img":
+        if not consent:
+            errors.append("mode=text2img 需要用户显式同意（"
+                          "generation.text2img_consent=true），否则默认参考图模式")
+        if declared:
+            warnings.append("已登记参考图但 mode=text2img：参考图未参与生成")
+
+    bad_refs = [r for r in refs if not r.get("verified")]
+    if refs and bad_refs:
+        for r in bad_refs:
+            errors.append("参考图未通过核对：%s（%s）"
+                          % (r.get("path"),
+                             r.get("verify_note") or "sha256/路径不一致"))
+    if order_dir and refs:
+        base = os.path.abspath(order_dir)
+        outside = [r for r in refs
+                   if not os.path.abspath(r.get("abs_path") or r.get("path") or "")
+                   .startswith(base + os.sep)]
+        if outside:
+            errors.append("参考图必须归档在订单目录内（平铺），不得引用目录外文件：%s"
+                          % ", ".join(os.path.basename(r.get("path") or "")
+                                      for r in outside))
     strength = gen.get("strength")
     rng = ref_cap.get("strength_range")
-    if strength is not None and rng and not (rng[0] <= float(strength) <= rng[1]):
+    if strength is not None and ref_cap.get("strength_range") is None:
+        errors.append("后端 %r 没有 strength 入参，strength 必须为 null" % bid)
+    elif strength is not None and rng and not (rng[0] <= float(strength) <= rng[1]):
         errors.append("strength=%s 超出后端范围 %s" % (strength, rng))
-    identity_unverified = bool((mode == "reference" or refs) and not supported
-                               and fallback == "text2img")
+
+    ref_ok = bool(mode == "reference" and supported and refs
+                  and not bad_refs)
+    if mode == "text2img":
+        identity_unverified = True
+    else:
+        identity_unverified = not ref_ok
     return {
         "backend": bid,
         "backend_name": (backend or {}).get("display_name"),
+        "backend_verified": bool((backend or {}).get("verified")),
         "mode": mode,
-        "reference_images": refs,
+        "reference_images": [{"path": r.get("path"), "role": r.get("role"),
+                              "sha256": r.get("sha256")} for r in refs]
+        or declared,
+        "reference_input_supported": supported,
+        "reference_param": ref_cap.get("param"),
+        "reference_verified": ref_ok,
+        "max_reference_images": max_refs,
         "strength": strength,
         "fallback": fallback,
-        "reference_input_supported": supported,
-        "max_reference_images": max_refs,
+        "text2img_consent": consent,
         "identity_unverified": identity_unverified,
         "errors": errors,
         "warnings": warnings,
@@ -2424,39 +2663,68 @@ def check_generation(gen, registry):
 
 
 def load_reference_images(arg_refs, brief, raw_dir, brief_path):
-    """从 --references / brief.generation / <订单>/refs 收集参考图。"""
-    out = []
+    """按 brief.generation.reference_images 的记账读取参考图（订单目录平铺）。
+
+    参考图归档在订单目录内，命名 `<prefix>-ref-N.png`，brief 记录
+    `path` / `sha256` / `role`。不再扫描 `refs/` 子目录。
+    """
     base = os.path.dirname(os.path.abspath(brief_path)) if brief_path else raw_dir
     items = []
     if arg_refs:
         for p in arg_refs.split(","):
             p = p.strip()
             if p:
-                items.append({"path": p, "role": "style"})
+                items.append({"path": p, "role": "identity", "sha256": None})
     elif brief:
         for it in ((brief.get("generation") or {}).get("reference_images") or []):
             if isinstance(it, str):
-                items.append({"path": it, "role": "style"})
+                items.append({"path": it, "role": "identity", "sha256": None})
             elif isinstance(it, dict) and it.get("path"):
-                items.append({"path": it["path"], "role": it.get("role")})
+                items.append({"path": it["path"], "role": it.get("role"),
+                              "sha256": it.get("sha256")})
     if not items:
-        refs_dir = os.path.join(os.path.dirname(os.path.abspath(raw_dir)), "refs")
-        if os.path.isdir(refs_dir):
-            for f in sorted(os.listdir(refs_dir)):
-                if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                    items.append({"path": os.path.join(refs_dir, f),
-                                  "role": "style"})
+        # 兜底：订单根里已有的平铺参考图（旧单未记账时也能读）
+        if os.path.isdir(base):
+            for f in sorted(os.listdir(base)):
+                if re.match(r".+-ref-\d+\.(png|jpe?g|webp)$", f, re.I):
+                    items.append({"path": f, "role": "identity", "sha256": None})
+    out = []
+    base_abs = os.path.abspath(base)
     for it in items:
         p = it["path"]
         if not os.path.isabs(p):
-            p = os.path.join(base, p)
+            p = os.path.join(base_abs, p)
+        p = os.path.abspath(p)
+        entry = {"path": (os.path.relpath(p, base_abs)
+                          if p.startswith(base_abs + os.sep) else p),
+                 "abs_path": p, "role": it.get("role"),
+                 "recorded_sha256": it.get("sha256"), "sha256": None,
+                 "verified": False, "verify_note": None}
+        if not os.path.isfile(p):
+            entry["verify_note"] = "文件不存在"
+            print("reference missing: %s" % p)
+            out.append(entry)
+            continue
+        try:
+            entry["sha256"] = _sha256_file(p)
+        except OSError as exc:
+            entry["verify_note"] = "sha256 计算失败: %s" % exc
+            out.append(entry)
+            continue
+        if it.get("sha256") and entry["sha256"] != it["sha256"]:
+            entry["verify_note"] = "sha256 与 brief 记录不一致（图被替换或改过）"
+            print("reference sha256 mismatch: %s" % p)
+        else:
+            entry["verified"] = True
         try:
             im = Image.open(p)
             im.load()
-            out.append({"path": p, "role": it.get("role"),
-                        "image": im.convert("RGB")})
+            entry["image"] = im.convert("RGB")
         except Exception as exc:
+            entry["verified"] = False
+            entry["verify_note"] = "图片不可读: %s" % exc
             print("reference unreadable: %s (%s)" % (p, exc))
+        out.append(entry)
     return out
 
 
@@ -2630,7 +2898,8 @@ def main():
     ap.add_argument("--backends", default=None,
                     help="生成后端能力注册表 JSON（默认 references/backends.json）")
     ap.add_argument("--references", default=None,
-                    help="参考图路径，逗号分隔；缺省读 brief.generation 或 <订单>/refs")
+                    help="参考图路径，逗号分隔；缺省读 brief.generation.reference_images"
+                         "（订单目录平铺，<prefix>-ref-N.png）")
     args = ap.parse_args()
 
     raw_dir, out_dir = args.raw, args.out
@@ -2801,22 +3070,26 @@ def main():
               "可能误判重复；建议用 --round 或 brief.round 显式指定。"
               % (len(unknown_rounds), len(work)))
 
-    # 参考图能力检测（调用前置）：不支持时默认 fail，绝不静默退回文生图
+    # 参考图能力检测（调用前置）：先读本单参考图并核对 sha256，再判后端能力。
+    # identity_unverified=false 只在「后端支持 + 参考图可读 + sha 对得上」时成立。
+    refs = load_reference_images(args.references, brief, ref_dir, brief_path)
     backends = load_json(args.backends or default_backends_path())
-    gen_check = check_generation((brief or {}).get("generation"), backends)
+    gen_check = check_generation((brief or {}).get("generation"), backends,
+                                 refs=refs,
+                                 order_dir=(os.path.dirname(os.path.abspath(brief_path))
+                                            if brief_path else ref_dir))
     if gen_check and gen_check["errors"]:
         for e in gen_check["errors"]:
             print("generation capability: " + e)
-        print("已停止：参考图能力不满足，退不退回文生图只能由用户显式决定。")
+        print("已停止：生成能力/参考图核对不满足，退不退回文生图只能由用户显式决定。")
         return 4
-    refs = load_reference_images(args.references, brief, ref_dir, brief_path)
     if gen_check:
+        if not gen_check["backend_verified"]:
+            print("WARNING: 后端 %s 标记 verified=false —— 尚未在真实环境跑通，"
+                  "本次产物不能当作身份/画风已验证。" % gen_check["backend"])
         if gen_check["identity_unverified"]:
             print("WARNING: 本单 identity_unverified=true —— 参考图未真正参与生成，"
                   "只在报告里标注，不能当作身份一致。")
-        if (gen_check["mode"] == "reference" or gen_check["reference_images"]) and not refs:
-            print("参考图模式缺少可读参考图：按 fallback=fail 停止（退出码 4）。")
-            return 4
 
     results = []
     for item in work:
@@ -3139,7 +3412,10 @@ def main():
             "checklist": {"path": args.checklist, "provided": checklist is not None},
             "face_mode": face_mode,
             "generation": gen_check,
-            "reference_images": [{"path": r["path"], "role": r.get("role")} for r in refs],
+            "reference_images": [{"path": r["path"], "role": r.get("role"),
+                                  "sha256": r.get("sha256"),
+                                  "verified": bool(r.get("verified"))}
+                                 for r in refs],
             "order": {
                 "confirmed": bool(confirm and confirm["confirmed"]),
                 "confirmation_source": (confirm or {}).get("source"),
@@ -3184,6 +3460,8 @@ def main():
             "face_mode": face_mode,
             "order_id": current_order,
             "identity_unverified": bool(gen_check and gen_check["identity_unverified"]),
+            "reference_verified": bool(gen_check and gen_check["reference_verified"]),
+            "backend_verified": bool(gen_check and gen_check["backend_verified"]),
             "contact_sheet": sheet_name,
         },
         "items": [],
@@ -3214,9 +3492,16 @@ def main():
               (budget["limit"], budget["used"], budget["remaining"],
                "（已超预算，经确认继续）" if budget["exceeded"] else ""), ""]
     if gen_check and gen_check["identity_unverified"]:
-        lines += ["> **警告：本单 identity_unverified=true。** 后端 `%s` 不支持参考图入参，"
-                  "按用户显式同意退回 text2img；参考图未参与生成，"
-                  "不能据此认为身份一致。" % gen_check.get("backend"), ""]
+        if gen_check.get("mode") == "text2img":
+            lines += ["> **警告：本单 identity_unverified=true。** 已按用户显式同意关闭参考图"
+                      "（`mode=text2img`）；参考图未参与生成，不能据此认为身份一致。", ""]
+        else:
+            lines += ["> **警告：本单 identity_unverified=true。** 后端 `%s` 的参考图"
+                      "未通过核对（缺失/sha256 不一致/未支持）；不能据此认为身份一致。"
+                      % gen_check.get("backend"), ""]
+    if gen_check and not gen_check.get("backend_verified", True):
+        lines += ["> 后端 `%s` 标记 `verified=false`：尚未在真实环境跑通并回传产物，"
+                  "本单结果不能当作后端能力已验证。" % gen_check.get("backend"), ""]
     if gen_check and gen_check["warnings"]:
         lines += ["> " + w for w in gen_check["warnings"]] + [""]
     if face_mode == "faceless":
@@ -3273,25 +3558,31 @@ def main():
                 r["id"], m.get("head_ratio", "-"), m.get("head_width_ratio", "-"),
                 m.get("center_offset", "-"), am.get("visor_offset", "-"),
                 am.get("contour_asym", "-"), r.get("metric_set", "-")))
-    lines += ["", "| 图 | 主色数 | 饱和度 | 边缘密度 | 背景占比 | 背景 stddev | 背景 |",
-              "|-|-|-|-|-|-|-|"]
+    lines += ["", "| 图 | 主色数 | 饱和度 | 边缘密度 | 明度p50 | 硬软边比 | 近白占比 | 背景占比 | 背景 stddev | 背景 |",
+              "|-|-|-|-|-|-|-|-|-|-|"]
     for r in ranked:
         s = r.get("style") or {}
-        lines.append("| %s | %s | %s | %s | %s | %s | %s |" % (
+        lines.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
             r["id"], s.get("palette_colors", "-"), s.get("saturation", "-"),
-            s.get("edge_density", "-"), s.get("background_share", "-"),
+            s.get("edge_density", "-"), s.get("value_p50", "-"),
+            s.get("hard_soft_ratio", "-"), s.get("near_white_share", "-"),
+            s.get("background_share", "-"),
             s.get("background_stddev", "-"), s.get("background_mode", "-")))
     if refs:
-        lines += ["", "| 图 | 参考风格相似度 | 身份相似度 | 说明 |", "|-|-|-|-|"]
+        lines += ["", "| 图 | 参考风格相似度 | 主体相似度 | 身份相似度 | 说明 |",
+                  "|-|-|-|-|-|"]
         for r in ranked:
             rs = r.get("reference_similarity") or {}
-            lines.append("| %s | %s | %s | %s |" % (
+            lines.append("| %s | %s | %s | %s | %s |" % (
                 r["id"], rs.get("style_similarity", "-"),
+                rs.get("subject_similarity", "-"),
                 "null（无 embedding）" if rs.get("identity_similarity") is None else
                 rs.get("identity_similarity"),
-                "风格相似度仅为色板/饱和度/边缘统计，不是身份一致"))
-        lines += ["", "身份核对需人工过清单：发型/耳鳍、头盔/面罩、装甲配色、胸口或肩部标识、比例年龄感。",
-                  "参考图是否真正参与生成取决于后端能力；换宿主必须重新跑能力检测。"]
+                "像素统计（色板/主体 HSV/边缘/明度），不是身份一致"))
+        lines += ["", "身份核对需人工过清单：发型/发绺、头饰/帽型与徽标、服装配色与领口、"
+                  "标志性细节、肤色与年龄感。",
+                  "参考图是否真正参与生成：看 manifest `generation.reference_verified` "
+                  "与 `backend_verified`；换宿主必须重新跑能力检测。"]
     lines += ["", "原因码释义：" + "；".join("%s=%s" % (k, v) for k, v in REASON_LABEL.items()),
               "",
               "> 已紧构图的原图会选中「全幅」候选，不再为凑目标脸占比二次放大裁切；",

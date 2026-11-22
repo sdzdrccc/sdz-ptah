@@ -26,6 +26,9 @@
   py -3 rounds.py --order <订单目录> --set-satisfaction --round 1 \
         --satisfaction satisfied
 
+  # 对账：把盘上已有但没记账的图补进预算台账（防止实际 8 张、台账 2 张）
+  py -3 rounds.py --order <订单目录> --reconcile
+
 预算按轮累计：累计超过 budget_limit 且未加 --allow-over-budget 时直接拒绝（退出码 5）。
 """
 
@@ -168,6 +171,20 @@ def scoped_rounds(data):
     return [r for r in rounds if order_of_round(r, data) == cur]
 
 
+def scoped_unaccounted(data):
+    """当前订单里「盘上有图但没记进轮次」的补账记录。"""
+    cur = current_order_id(data)
+    items = data.get("unaccounted") or []
+    if cur is None:
+        return list(items)
+    return [u for u in items if order_of_round(u, data) == cur]
+
+
+def counted_total(data):
+    return (sum(int(r.get("count") or 0) for r in scoped_rounds(data))
+            + sum(int(u.get("count") or 0) for u in scoped_unaccounted(data)))
+
+
 def load_ledger(order_dir, bud=None):
     path = rounds_path(order_dir)
     if os.path.isfile(path):
@@ -191,8 +208,7 @@ def load_ledger(order_dir, bud=None):
     data.setdefault("ordered_at", now_text())
     data.setdefault("budget_used", 0)
     rounds = data.setdefault("rounds", [])
-    data["budget_used"] = sum(int(r.get("count") or 0)
-                              for r in scoped_rounds(data))
+    data["budget_used"] = counted_total(data)
     limit = bud if bud is not None else data.get("budget_limit")
     data["budget_limit"] = max(1, int(limit if limit is not None
                                       else DEFAULT_BUDGET))
@@ -216,8 +232,7 @@ def load_ledger(order_dir, bud=None):
 
 
 def save_ledger(order_dir, data):
-    data["budget_used"] = sum(int(r.get("count") or 0)
-                              for r in scoped_rounds(data))
+    data["budget_used"] = counted_total(data)
     data["remaining"] = data["budget_limit"] - data["budget_used"]
     rounds = data.get("rounds", [])
     scoped = scoped_rounds(data)
@@ -258,6 +273,7 @@ def do_check(order_dir, budget):
                "remaining": max(0, data["remaining"]),
                "exhausted": exhausted,
                "rounds": len(scoped_rounds(data)),
+               "unaccounted": len(scoped_unaccounted(data)),
                "satisfaction": data.get("satisfaction"),
                "pending_rounds": pending}
     if pending:
@@ -309,6 +325,18 @@ def do_record(order_dir, budget, round_no, count, ids, catalog, available,
         print("--satisfaction 只能是 %s" % " / ".join(SATISFACTIONS))
         return EXIT_INPUT
     directions = resolve_directions(ids, catalog, available)
+
+    file_list = [os.path.basename(f) for f in (files or [])]
+    if file_list:
+        missing = [f for f in file_list
+                   if not os.path.isfile(os.path.join(order_dir, f))]
+        if missing:
+            print("--files 里有文件不在订单目录：%s" % ", ".join(missing))
+            return EXIT_INPUT
+        if len(file_list) > count:
+            print("--count=%d 小于 --files 张数 %d：本轮会漏记预算。"
+                  "请把 --count 改成实际生成张数。" % (count, len(file_list)))
+            return EXIT_INPUT
 
     data = load_ledger(order_dir, budget)
     used = data["budget_used"]
@@ -374,6 +402,69 @@ def do_set_satisfaction(order_dir, budget, round_no, satisfaction):
           "satisfaction": satisfaction,
           "order_satisfaction": data.get("satisfaction"),
           "pending_rounds": data.get("pending_rounds")})
+    return EXIT_OK
+
+
+def disk_images(order_dir):
+    """订单根平铺的生成图：按 `<prefix>-avatar-N[-src]` 聚合编号。"""
+    nums = {}
+    for name in os.listdir(order_dir):
+        m = re.match(r".+-avatar-(\d+)(?:-src)?\.(?:png|jpe?g|webp)$", name, re.I)
+        if m:
+            nums.setdefault(int(m.group(1)), []).append(name)
+    return nums
+
+
+def account_numbers(entries):
+    out = set()
+    for item in entries:
+        for name in item.get("files") or []:
+            m = re.match(r".+-avatar-(\d+)(?:-src)?\.", os.path.basename(name), re.I)
+            if m:
+                out.add(int(m.group(1)))
+    return out
+
+
+def do_reconcile(order_dir, budget, allow_over=False):
+    """把盘上已有、但没记进轮次的图补进台账，避免「实际 8 张、台账 2 张」。
+
+    以盘上张数与台账累计的差值为准（改名/换前缀不会误判）：
+    只要 `盘上张数 > 台账累计`，差额就补进 `unaccounted`；不减少历史累计。
+    """
+    if not os.path.isdir(order_dir):
+        print("订单目录不存在: %s" % order_dir)
+        return EXIT_INPUT
+    data = load_ledger(order_dir, budget)
+    nums = disk_images(order_dir)
+    accounted = (account_numbers(scoped_rounds(data))
+                 | account_numbers(scoped_unaccounted(data)))
+    missing = sorted(nn for nn in nums if nn not in accounted)
+    extra = max(0, len(nums) - counted_total(data))
+    if extra:
+        files = [f for nn in missing for f in sorted(nums[nn]) if "-src" in f.lower()]
+        if not files:
+            files = [f for nn in missing for f in sorted(nums[nn])]
+        data.setdefault("unaccounted", []).append({
+            "order_id": data["order_id"],
+            "count": extra,
+            "nns": missing,
+            "files": files,
+            "reason": "disk_scan_not_recorded",
+            "at": now_text(),
+        })
+        save_ledger(order_dir, data)
+    echo({"order_id": data["order_id"],
+          "disk_images": len(nums),
+          "accounted_nns": sorted(accounted),
+          "unrecorded": missing if extra else [],
+          "budget_limit": data["budget_limit"],
+          "budget_used": data["budget_used"],
+          "remaining": max(0, data["remaining"]),
+          "exhausted": data["remaining"] <= 0})
+    if data["remaining"] <= 0 and not allow_over:
+        print("预算已用尽：盘上 %d 张 / 上限 %d。追加预算需用户再次确认。"
+              % (data["budget_used"], data["budget_limit"]))
+        return EXIT_BUDGET
     return EXIT_OK
 
 
@@ -452,6 +543,8 @@ def main():
     ap.add_argument("--record", action="store_true", help="记录一轮生成")
     ap.add_argument("--set-satisfaction", action="store_true",
                     help="回填某轮满意度")
+    ap.add_argument("--reconcile", action="store_true",
+                    help="扫描订单目录，把已生成但没记账的图补进预算台账")
     ap.add_argument("--round", type=int, help="轮次编号（从 1 开始）")
     ap.add_argument("--count", type=int, help="本轮生成张数")
     ap.add_argument("--directions", default="",
@@ -477,8 +570,8 @@ def main():
         print("必须指定 --order（或 --new-order）")
         return EXIT_INPUT
     if not (args.check or args.preview or args.record
-            or args.set_satisfaction):
-        print("必须指定 --check / --preview / --record / --set-satisfaction")
+            or args.set_satisfaction or args.reconcile):
+        print("必须指定 --check / --preview / --record / --reconcile / --set-satisfaction")
         return EXIT_INPUT
 
     try:
@@ -493,6 +586,8 @@ def main():
             return do_check(args.order, args.budget)
         if args.preview:
             return do_preview(args.order, args.budget, ids, catalog, available)
+        if args.reconcile:
+            return do_reconcile(args.order, args.budget, args.allow_over_budget)
         if args.record:
             if args.round is None:
                 print("--record 需要 --round")

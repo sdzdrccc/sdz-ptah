@@ -33,6 +33,8 @@
 > 超预算必须停下并向用户确认，不能默默继续抽。量产单需用户明确同意后再调大。
 > 预算**按当前订单累计**（`rounds.json.budget_used`，以 `order_id` 作用域）：累计到上限即停，
 > 同目录历史订单不累加，追加必须再次确认；**不得静默超额**。
+> 每轮生成前先跑 `rounds.py --reconcile`：盘上已有但没记账的图补进 `unaccounted`，
+> 再跑 `--check`；`--record` 的 `--count` 小于 `--files` 张数会直接拒绝，防止实际张数大于台账。
 
 ---
 
@@ -59,11 +61,18 @@
   "angle_source": "default",
   "budget": 10,
   "generation": {
-    "backend": "trae-generateimage",
-    "mode": "text2img",
-    "reference_images": [],
+    "backend": "agnes-aigc-img2img",
+    "mode": "reference",
+    "reference_images": [
+      {
+        "path": "satoshi-ref-1.png",
+        "sha256": "9f2c...<完整 sha256>",
+        "role": "identity"
+      }
+    ],
     "strength": null,
-    "fallback": "fail"
+    "fallback": "fail",
+    "text2img_consent": false
   },
   "constraints": "不要文字、不要多人、不要明显多指",
   "confirm": {
@@ -97,7 +106,7 @@
 | `angle_source` | 否 | `default` / `user`；用户手动指定即为 `user` |
 | `budget` | 否 | 本单生成预算，默认 10；与 `--budget` 取更小值 |
 | `round` | 否 | 显式轮次；优先级次于 `--round`。flat 结构不从文件名/目录推断；都缺省时告警并按单轮处理（见 5.3） |
-| `generation` | 否 | 生成后端与参考图参数块，见 3.1；缺省按 `text2img` + `fallback=fail` |
+| `generation` | 否 | 生成后端与参考图参数块，见 3.1；缺省为参考图模式（`agnes-aigc-img2img` + `fallback=fail`）。text2img 必须显式写 `text2img_consent=true` |
 | `constraints` | 否 | 追加的负面约束，编译进 prompt 的禁止项描述 |
 | `confirm` | 是（执行前） | 显式确认块；`confirmed` 必须为 `true`，否则流水线拒绝执行 |
 
@@ -110,7 +119,8 @@
 
 **第一段：收输入（不生成）**。入口为 `/sdz-ptah-avatar` 或普通请求，只做：
 
-1. 读会话里的参考图（复制进订单 `refs/`，**只用于读特征，不能当生成条件**）与文字说明；
+1. 读会话里的参考图（复制进订单目录根，命名 `<prefix>-ref-N.png`，并在 brief 记
+   `path`/`sha256`/`role`；**平铺，不建 `refs/` 子目录**）与文字说明；
 2. 选风格档案（默认 `tv-anime-cel`）与角色卡（有则用，无则按描述建临时卡）；
 3. 解析性别：用户明确说明 > 角色卡 `gender` > `unspecified`；**不从参考图推断性别**；
 4. 写 `brief.draft.json`，`status.json` 记 `state=awaiting_input`。
@@ -260,6 +270,20 @@ py -3 scripts/confirm_order.py --brief "<订单目录>\brief.json" --check
 square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完整入镜。
 ```
 
+**参考图模式（默认）的编译差异**：文字不再复述角色外形，角色块压缩成一句
+「与 `<image 1>` 一致」，并在两段提示词开头固定加入：
+
+```
+<image 1> 是身份与画风的唯一权威，只改角度、构图与背景。
+```
+
+英文段落用对应句：
+`<image 1> is the only authority for identity and art style; change only the angle, composition and background.`
+
+角度、取景、背景仍按 §2.6 顺序写在固定句之后；`enhanced_prompt` 用英文、
+`original_prompt` 用中文，两段语义一致（见 3.2）。不再写「精确 90°」「同一 seed」
+这类生成端不支持的参数。
+
 ### 2.7 角度矩阵与默认朝向
 
 | 角度 | 状态 | 可见眼数 | 瞳孔位置 | 鼻尖侧 | 眼位 |
@@ -291,8 +315,8 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 ```
 有人脸：
   可见眼数 == 1
-  且 朝左：瞳孔横向位置 ≤0.42 且 鼻尖侧向左
-     朝右：瞳孔横向位置 ≥0.58 且 鼻尖侧向右
+  且 朝左：瞳孔横向位置 ≤0.42（鼻尖侧向左为交叉校验；不可用时不阻断）
+     朝右：瞳孔横向位置 ≥0.58（鼻尖侧向右为交叉校验；不可用时不阻断）
   且 0.32 ≤ eye_center_y ≤ 0.46
   可见眼数 == 2 → 正面：eye_y 0.24–0.38 + 眼线倾斜/双眼平衡达标
 无脸：
@@ -302,8 +326,12 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 
 - **方向别写反**：实测朝左样本 `pupil_edge=0.178`、朝右样本 `0.789`；朝左时可见眼在头框
   左半部（鼻尖一侧），朝右在右半。`nose_side` 由头部框内肤色重心辅助判断，与瞳孔交叉校验。
-- **瞳孔极度偏一侧的例外**：`pupil_edge ≤0.12` 或 `≥0.88` 时方向已确定；若鼻尖侧
-  不可用（肤色重心落在中线、背景嘈杂）不把明确方向判成未定；鼻尖与瞳孔冲突时仍判未定。
+- **侧脸判定带**：瞳孔落在 `≤0.42`（左）或 `≥0.58`（右）时方向已经确定，
+  **不要求鼻尖侧**——肤色重心落中线是常见情况，旧逻辑会把它误判成 `angle_undetermined`。
+  只有瞳孔落在 `0.42–0.58` 的中间带、且鼻尖侧不可用时才判未定。
+  瞳孔完全检不出但鼻尖侧可读时，方向按鼻尖侧确定（此时若与期望相反记
+  `angle_mismatch`，不再记未定）。
+- **冲突仍判未定**：瞳孔与鼻尖侧指向相反时判 `angle_undetermined`，不按其中一侧硬判。
 - **判不出方向时**（瞳孔或鼻尖侧缺失/冲突）→ `angle_undetermined`，FAIL 并暂停请人工确认；
   不用默认朝向顶替判定结果。
 - 方向明确但与期望不符 → `angle_mismatch`；未启用角度直接 FAIL，不返回 `null`。
@@ -316,22 +344,70 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 
 | 项 | 规则 |
 |-|-|
-| 调用工具 | `GenerateImage`（经 `ToolSearch` 取 schema，`DeferExecuteTool` 执行） |
-| 入参 | 仅 `prompt` 与 `image_size`；无 seed / 负向词 / 参考图 / 批量 |
+| 默认模式 | **参考图驱动（`mode=reference`）**：用户给的角色参考图是身份与画风的唯一权威，文字只描述角度、构图与背景 |
+| 调用工具 | 按宿主区分，**不是本 skill 的固有属性**：TRAE 为 `GenerateImage`；Agnes 为 `agnes_aigc__image_to_image` |
+| TRAE 入参 | 仅 `prompt` 与 `image_size`；无 seed / 负向词 / 参考图 / 批量 → **不支持参考图**，参考图只能用来读特征 |
+| Agnes 入参 | `original_prompt` / `enhanced_prompt` / `reference_image` 必需；可选 `size` / `ratio`。**无 strength、无 seed、无负向词，只能传 1 张参考图** |
+| 参考图归档 | 订单目录内**完全平铺**，不建 `refs/` 子目录；命名 `<prefix>-ref-N.png`；`brief.generation.reference_images` 记 `path` / `sha256` / `role` |
+| 能力核对 | 生成前必须核对后端支持参考图、本单参考图可读、sha256 与记录一致；任一不满足默认 `fallback=fail` |
+| 身份可验证性 | `identity_unverified=false` 只在「后端支持 + 参考图真的传进去 + sha 对得上」时成立；text2img 一律 `true` |
 | 原生输出 | 1920×1920 方形 JPEG（实测 385–510 KB）；提示词显式要求满出血、无边框 |
 | 当前角度 | 按 `brief.angle`：`profile_left` 或 `profile_right`；默认按性别规则，用户可覆盖 |
 | 首轮 | 默认 2 张（画质默认 1K）；必须完成确认门后才允许调用 |
 | 二轮补量 | 只在预算内、且用户同意后补；同一角度最多再 1 张 |
 | 单需求总预算 | `--budget`，默认 **10**；每张调用都计数，**按当前订单（`order_id`）累计**，历史订单不累加，超预算停下确认 |
 | 轮次记录 | 每轮写 `rounds.json`（`order_id/round/count/files[]/directions[]/budget_used`），**不建目录**；历史订单与历史轮次都不覆盖 |
+| 预算对账 | 生成前跑 `rounds.py --reconcile`：盘上有图但没记账的补进 `unaccounted`，防止「实际 8 张、台账 2 张」；`--record` 的 `--count` 小于 `--files` 张数直接拒绝 |
 | 预算落盘 | `status.json` 的 `budget{limit,used,remaining}` 每次生成后 +1；manifest 记录实际张数 |
 | 侧脸变体 | 需要重抽时，换「远眼不可见」的措辞（至少两种写法），不要原句连抽 |
 | 侧脸验收 | 每张先放大到 800px 看鼻梁后方；出现第二只眼/眼白即弃用，不进入评分 |
 | 重抽规则 | 同一角度连续 2 次不满足 `subject_cut` / `angle_mismatch` / `angle_undetermined` 即停，先报告再决定 |
-| 确认门 | `brief.confirm.confirmed` 必须为 `true`；未确认不得调用 `GenerateImage`，流水线直接退出码 4 |
+| 确认门 | `brief.confirm.confirmed` 必须为 `true`；未确认不得调用生成工具，流水线直接退出码 4 |
 | 命名 | 中转名 `<angle>_v<variant>.jpg`（如 `profile_left_v1.jpg`）；`v` 只是变体，不参与轮次。进订单目录后统一改为 `<前缀>-avatar-<N>-src.<ext>`，成品为 `<前缀>-avatar-<N>.png` |
 | 落盘 | 先写临时中转路径，生成后逐张 `Move` 到订单目录；不得留在 `%TEMP%` |
 | 失败处理 | 文件缺失或打不开记为该次失败，不进入评分；已生成图与 `status.json` 必须保留 |
+
+### 3.1 参考图模式（默认）
+
+硬限制（按 Agnes `image_to_image` 的真实 schema）：
+
+- **单张参考图**：`reference_images.max=1`；超过 1 张直接拒绝，不能拆成多图拼贴。
+- **无 strength**：`strength` 必须为 `null`；`strength_range=null`。不要写「参考强度 0.6」这类入参。
+- **无 seed**：不能要求「同一 seed 重出」。
+- **无负向词**：禁止项只能写进正向 prompt 的自然语言描述，不能作为独立负向入参。
+- **无批量**：一次调用只出一张；预算按调用次数计。
+
+参考图归档与调用顺序：
+
+1. `confirm_order.py --reference <原图>` 复制到订单目录根，命名 `<prefix>-ref-N.png`，把 `path` / `sha256` / `role` 写进 `brief.generation.reference_images`；
+2. 流水线读这份记录（不再扫 `refs/`），逐张核对 sha256；文件缺失、被替换或落在订单目录外都记 `verified=false`；
+3. `check_generation` 只有在后端支持参考图、参考图全部核对通过时才允许生成，并把 `reference_verified=true` 写进 manifest；
+4. 后端 `verified=false`（Agnes 尚未真跑通）时只警告、不假绿：产物仍标 `backend_verified=false`。
+
+`text2img` 只在用户**显式同意**时启用：`brief.generation.text2img_consent=true`，否则流水线拒绝执行。
+启用后 manifest 记 `identity_unverified=true`，报告必须显著标注「参考图未参与生成」。
+
+### 3.2 参考图模式的提示词双段
+
+Agnes 要求两段提示词，**内容分工不同**，不能把同一段复制两次：
+
+- `enhanced_prompt`（英文）：风格锚点 + 角色特征 + 角度/构图/背景 + 画布条款；用于生成端理解。
+- `original_prompt`（中文）：同一含义的中文表述，供日志与人工核对。
+
+参考图模式必须在两段里都加入固定句（中文原句照抄）：
+
+```
+<image 1> 是身份与画风的唯一权威，只改角度、构图与背景。
+```
+
+英文对应：
+
+```
+<image 1> is the only authority for identity and art style; change only the angle, composition and background.
+```
+
+固定句之后才写目标角度、取景松紧和背景；**不得**再重复描述发型/服装细节去和参考图抢权重，
+角色特征只保留一句「与 <image 1> 一致」。`strength` 明确写 `null`。
 
 不可复现：同一 prompt 两次结果不同，manifest 只记录 prompt 与时间，不记录 seed。
 
@@ -349,26 +425,34 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 |-|-|
 | `backend` | 后端 id，必须在 `backends.json` 登记 |
 | `mode` | `reference`（要参考图）或 `text2img` |
-| `reference_images[]` | 每项 `{path, role}`，`role` 取后端声明的 `style`/`identity`/`outfit` |
-| `strength` | 参考图强度，必须在后端 `strength_range` 内 |
+| `reference_images[]` | 每项 `{path, sha256, role}`；`path` 是订单目录内的平铺文件名（`<prefix>-ref-N.png`），`role` 默认 `identity` |
+| `strength` | 参考图强度；Agnes `image_to_image` 无此入参，必须为 `null`（`strength_range=null`） |
 | `fallback` | 不支持参考图时怎么办：默认 `fail`；只有用户显式同意才可 `text2img` |
+| `text2img_consent` | 用户显式同意关闭参考图的证据；`mode=text2img` 时必须为 `true` |
 
 调用前检测（`avatar_pipeline.py` 在评分/导出前执行）：
 
 1. 后端未登记 / `available=false` → 退出码 **4**；
-2. `mode=reference` 或带参考图，但后端 `reference_images.supported=false`：
+2. `mode=reference`，但后端 `reference_images.supported=false`：
    - `fallback=fail`（默认）→ 退出码 **4**，**不得静默退回文生图**；
-   - `fallback=text2img`（仅用户显式同意）→ 继续，但 manifest
+   - `fallback=text2img` 且 `text2img_consent=true`（仅用户显式同意）→ 继续，但 manifest
      `identity_unverified=true`，报告首屏显著警告「参考图未参与生成，不能据此认为身份一致」；
-3. 参考图数量超过 `max`、`strength` 越界 → 退出码 4；
-4. `mode=reference` 但没有可读参考图 → 退出码 4。
+3. 参考图数量超过 `max`（Agnes 为 1）、`strength` 与后端不符（Agnes 必须 null）→ 退出码 4；
+4. `mode=reference` 但没有可读参考图、sha256 与 brief 记录不一致、或参考图不在订单目录内 → 退出码 4；
+5. `mode=text2img` 但 `text2img_consent` 不是 `true` → 退出码 4。
+
+**真传参核对**：`identity_unverified=false` 只在「后端声明支持参考图 + 参考图可读 +
+sha256 与 brief 记录一致 + 落在订单目录内」同时成立时才会出现。仅查到 registry 支持、
+但本单没把图传进去，仍记 `identity_unverified=true`，避免假绿。
 
 参考图相似度指标 `reference_similarity`：
 
-- **风格相似度**可算：色板直方图交集 0.50 + 饱和度差 0.25 + 边缘密度差 0.25，
-  三项都是像素统计，只说明「同体系」，不是风格 embedding；
+- **风格相似度**可算：色板直方图交集 0.40 + 主体 HSV 相似度 0.25 + 边缘密度差 0.20 +
+  明度 p50 差 0.15；四项都是像素统计，只说明「同体系」，不是风格 embedding；
+- **主体 HSV**：取内容框内像素的圆均值色相 + 饱和度/明度均值，与参考图逐项求差；
 - **身份相似度**无 embedding 模型时记 `null`，同时给 `manual_identity_checklist`
-  （发型/耳鳍、头盔面罩、装甲配色、胸口标识、身材比例），**不得用色板相似度冒充身份一致**。
+  （发型/发绺、头饰/帽型与徽标、服装配色与领口、标志性细节、肤色与年龄感），
+  **不得用色板或主体 HSV 相似度冒充身份一致**。
 
 **低成本验证优先**：能用参考图或已有产物算出的结论（风格粗指标、角度判定、阈值校准），
 一律不出图。只有必须验证「生成端实际出图」时才动用预算，且先跑最小张数。
@@ -1041,8 +1125,8 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 | `meta.budget` | `{limit, used, remaining, exceeded, source}`；`used` = **当前订单**的原图张数，`source=order_id`（无订单台账时才退回 `batch_round` / `raw_count`） |
 | `meta.style_profile` / `meta.character` / `meta.angle_matrix` | 本次使用的档案 id 与路径 |
 | `meta.face_mode` | `faced` / `faceless`；决定指标集与角度判据 |
-| `meta.generation` | `{backend, reference_input_supported, mode, fallback, strength, identity_unverified}` |
-| `meta.reference_images` | 实际参与/声明参与的参考图 `[{path, role, exists}]` |
+| `meta.generation` | `{backend, backend_verified, reference_input_supported, reference_verified, mode, fallback, strength, text2img_consent, identity_unverified}` |
+| `meta.reference_images` | 实际参与/声明参与的参考图 `[{path, role, sha256, verified}]`；`verified` 由 sha256 与路径核对得出 |
 | `meta.checklist` | 人工核对清单是否提供 |
 | `meta.order` | `{confirmed, confirmation_source, gender, gender_source, angle, angle_source, needs_gender_confirmation, count, count_capped}` |
 | `brief` | 需求单原文（含 `confirm` 块） |
@@ -1078,7 +1162,7 @@ flat 布局不再写 `report.md` 与 `budget.json`（预算写进 `manifest.meta
 | `canvas` | `{width, height, aspect, square, frame_like, frame_bbox}` |
 | `canvas_check` | `{passed, checks{square,no_frame}, reasons}` |
 | `angle_check` | `{expected, enabled, metric_set, detected{visible_eyes,pupil_edge,skin_centroid,nose_side,facing,is_profile,visor_offset,contour_asym}, passed, checks, reason, direction_known}`；`reason` 为 `angle_mismatch` / `angle_undetermined`；faceless 时 `visible_eyes=null`、`metric_set=head_contour` |
-| `reference_similarity` | `{style_similarity, identity_similarity, manual_identity_checklist[], per_reference[]}`；无 embedding 时 `identity_similarity=null` |
+| `reference_similarity` | `{style_similarity, subject_similarity, identity_similarity, manual_identity_checklist[], per_reference[]}`；`per_reference[]` 含色板交集、主体 HSV 差、饱和度/边缘/明度差与各自相似度；无 embedding 时 `identity_similarity=null` |
 | `character_check` | `{character_id, passed, items[], missing[], reasons[]}`；未传清单为 `null` |
 | `thumb` | 96px 可读性分数与分量 |
 | `reasons` | 原因码数组 |

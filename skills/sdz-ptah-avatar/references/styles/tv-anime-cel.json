@@ -56,11 +56,14 @@
   ],
   "gate": {
     "palette_colors": [5, 13],
-    "saturation": [0.08, 0.62],
-    "edge_density": [0.015, 0.10],
+    "saturation": [0.30, 0.55],
+    "edge_density": [0.010, 0.045],
+    "value_p50": [0.60, 0.78],
+    "hard_soft_ratio_max": 0.80,
+    "near_white_share_max": 0.03,
     "background_stddev_max": 20,
-    "background_modes": ["flat", "simple"],
-    "note": "粗指标只拦明显异体系（主色失控/饱和度异常/无线稿边缘/背景嘈杂），不能替代人眼判断画风是否贴。背景门槛按头像交付口径（平涂/轻渐变），TV 截图本身的绘景背景不参与该项校准。"
+    "background_modes": ["flat", "simple", "gradient"],
+    "note": "2026-11-23 收紧：旧区间（sat 0.08–0.62 / edge 0.015–0.10）会把 0.089 饱和度、0.056 边缘密度、1.71 硬软边比的图放过。新阈值以 1996 TV 单帧实测为中心并留容差：sat 0.30–0.55（参考 0.425–0.467）、edge 0.010–0.045（参考 0.011–0.030）、value_p50 0.60–0.78（参考 0.678–0.718）、hard_soft_ratio≤0.80（参考 0.24–0.25）、near_white≤0.03（参考 0）。渐变背景由四角双线性模型判定后放行，不再按 busy 处理。"
   },
   "calibration": {
     "method": "参考图 12 格 + 两张已有小智成品，不出图直接计算；palette 用 12 色量化、占比 ≥3.5% 计主色，取并集后外扩",
