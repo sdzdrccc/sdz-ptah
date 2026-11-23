@@ -23,7 +23,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
-VERSION = "1.11.0"
+VERSION = "1.11.1"
 
 # ---------------------------------------------------------------- 判别阈值
 # 肤色：动漫皮肤偏浅，实测 Cr-Cb 为 +3~+8、Cr 中位 133~138；
@@ -2573,7 +2573,7 @@ def check_generation(gen, registry, refs=None, order_dir=None):
     bid = gen.get("backend")
     backend = backends.get(bid)
     refs = refs or []
-    declared = gen.get("reference_images") or []
+    declared = _active_entries(gen.get("reference_images"))
     mode = gen.get("mode") or ("reference" if declared else "text2img")
     fallback = gen.get("fallback") or "fail"
     consent = gen.get("text2img_consent") is True
@@ -2662,6 +2662,14 @@ def check_generation(gen, registry, refs=None, order_dir=None):
     }
 
 
+def _active_entries(entries):
+    """只取 active=true 的参考图；没有显式 active 标记时全部参与（兼容旧单）。"""
+    entries = [e for e in (entries or []) if e]
+    active = [e for e in entries
+              if isinstance(e, dict) and e.get("active") is True]
+    return active if active else entries
+
+
 def load_reference_images(arg_refs, brief, raw_dir, brief_path):
     """按 brief.generation.reference_images 的记账读取参考图（订单目录平铺）。
 
@@ -2676,12 +2684,14 @@ def load_reference_images(arg_refs, brief, raw_dir, brief_path):
             if p:
                 items.append({"path": p, "role": "identity", "sha256": None})
     elif brief:
-        for it in ((brief.get("generation") or {}).get("reference_images") or []):
+        recorded = (brief.get("generation") or {}).get("reference_images") or []
+        for it in _active_entries(recorded):
             if isinstance(it, str):
                 items.append({"path": it, "role": "identity", "sha256": None})
             elif isinstance(it, dict) and it.get("path"):
                 items.append({"path": it["path"], "role": it.get("role"),
-                              "sha256": it.get("sha256")})
+                              "sha256": it.get("sha256"),
+                              "active": it.get("active")})
     if not items:
         # 兜底：订单根里已有的平铺参考图（旧单未记账时也能读）
         if os.path.isdir(base):

@@ -104,9 +104,10 @@
 | `gender_source` | 否 | `user` / `card` / `unspecified`，由流水线补全 |
 | `angle` | 否 | `profile_left` / `profile_right` / `front`；缺失时按性别取默认（男左、女右、未指定左） |
 | `angle_source` | 否 | `default` / `user`；用户手动指定即为 `user` |
+| `expression` | 否 | 表情目标，如 `mouth_open`；只影响提示词与人工核对，不改变角度闸门阈值 |
 | `budget` | 否 | 本单生成预算，默认 10；与 `--budget` 取更小值 |
 | `round` | 否 | 显式轮次；优先级次于 `--round`。flat 结构不从文件名/目录推断；都缺省时告警并按单轮处理（见 5.3） |
-| `generation` | 否 | 生成后端与参考图参数块，见 3.1；缺省为参考图模式（`agnes-aigc-img2img` + `fallback=fail`）。text2img 必须显式写 `text2img_consent=true` |
+| `generation` | 否 | 生成后端与参考图参数块，见 3.1；缺省为参考图模式（`agnes-aigc-img2img` + `fallback=fail`）。`active_reference` 指定当前生效参考图；text2img 必须显式写 `text2img_consent=true` |
 | `constraints` | 否 | 追加的负面约束，编译进 prompt 的禁止项描述 |
 | `confirm` | 是（执行前） | 显式确认块；`confirmed` 必须为 `true`，否则流水线拒绝执行 |
 
@@ -380,9 +381,12 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 参考图归档与调用顺序：
 
 1. `confirm_order.py --reference <原图>` 复制到订单目录根，命名 `<prefix>-ref-N.png`，把 `path` / `sha256` / `role` 写进 `brief.generation.reference_images`；
-2. 流水线读这份记录（不再扫 `refs/`），逐张核对 sha256；文件缺失、被替换或落在订单目录外都记 `verified=false`；
-3. `check_generation` 只有在后端支持参考图、参考图全部核对通过时才允许生成，并把 `reference_verified=true` 写进 manifest；
-4. 后端 `verified=false`（Agnes 尚未真跑通）时只警告、不假绿：产物仍标 `backend_verified=false`。
+2. 换参考图时**不删旧图**：旧条目标 `active=false` 存档，新条目标 `active=true`，并在
+   `generation.active_reference` 写明当前生效文件；有 `active=true` 时只加载生效那张，
+   `reference_similarity` 也只算这一张，旧图不参与。没有 `active` 标记的旧单按全部参与处理；
+3. 流水线读这份记录（不再扫 `refs/`），逐张核对 sha256；文件缺失、被替换或落在订单目录外都记 `verified=false`；
+4. `check_generation` 只有在后端支持参考图、参考图全部核对通过时才允许生成，并把 `reference_verified=true` 写进 manifest；
+5. 后端 `verified=false`（Agnes 尚未真跑通）时只警告、不假绿：产物仍标 `backend_verified=false`。
 
 `text2img` 只在用户**显式同意**时启用：`brief.generation.text2img_consent=true`，否则流水线拒绝执行。
 启用后 manifest 记 `identity_unverified=true`，报告必须显著标注「参考图未参与生成」。
