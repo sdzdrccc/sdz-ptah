@@ -4,7 +4,7 @@
   "display_name": "小智（Satoshi）",
   "style_id": "tv-anime-cel",
   "gender": "male",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "source": {
     "type": "reference-images",
     "note": "依据 12 格 TV 动画截图提取；只保留可文字化的外形特征，不包含剧情与设定",
@@ -31,22 +31,30 @@
   "face": {
     "shape": "儿童圆脸，脸颊略鼓，下巴短而圆",
     "age": "10–12 岁少年感，不要画成青年或成人",
-    "skin": "暖调小麦色，平涂 + 一层硬边阴影",
+    "skin": "浅暖蜜桃色，低饱和；具体色值见 skin_spec",
     "eyes": "大眼、琥珀棕虹膜、黑色粗上眼睑",
     "brows": "黑色粗眉，略上挑"
+  },
+  "skin_spec": {
+    "schema": "skin-anchors/1.0",
+    "note": "由参考帧实测 + 白点补偿得出：底 Lab(80.9, 11.2, 16.4)，色相 21°/饱和 27%/明度 91%。暗部沿用参考帧的偏粉灰方向（而非发橙），高光只给上限不给色块。",
+    "base": {"hex": "#E9C1AB", "role": "脸部底色 / 平涂主色"},
+    "shadow": {"hex": "#C99A93", "role": "颈下与帽檐投影的单层硬边暗部"},
+    "highlight_cap": {"hex": "#F2DCCB", "role": "皮肤最亮上限；不画皮肤高光块"}
   },
   "signature": {
     "cheek_marks": "两颊各有 3 条短促的闪电状斜线（脸颊纹），颜色比肤色深一阶",
     "hair_spikes": "两侧外炸的尖发绺是最强识别点",
     "cap_logo": "红白帽 + 深色折线徽标"
   },
-  "prompt_block": "黑色尖刺短发、两侧鬓发外炸盖耳、额前一撮分叉刘海；红色棒球帽配白色前片与深蓝折线徽标；暖调小麦色皮肤；蓝色短袖外套配白色领口；琥珀棕大眼、黑色粗眉；两颊各有三道短闪电状脸颊纹；10–12 岁少年脸型",
+  "prompt_block": "黑色尖刺短发、两侧鬓发外炸盖耳、额前一撮分叉刘海；红色棒球帽配白色前片与深蓝折线徽标；蓝色短袖外套配白色领口；琥珀棕大眼、黑色粗眉；两颊各有三道短闪电状脸颊纹；10–12 岁少年脸型",
+  "prompt_block_en": "black spiky hair with outward-flaring sideburns over the ears and a forked fringe; red baseball cap with a white front panel and a dark chevron logo; blue short-sleeve jacket with a white collar; large amber-brown eyes with thick black upper lids; three short lightning marks on each cheek; 10-12 year old boy face",
   "checklist": [
     {"key": "hair_black_spiky", "label": "黑色尖刺短发 + 两侧外炸鬓发", "required": true},
     {"key": "cap_red_white", "label": "红色棒球帽 + 白色前片", "required": true},
     {"key": "cap_logo", "label": "帽前深色折线徽标（无文字）", "required": true},
     {"key": "outfit_blue_white", "label": "蓝色外套 + 白色领口", "required": true},
-    {"key": "skin_tan", "label": "暖调小麦色皮肤", "required": true},
+    {"key": "skin_tan", "label": "浅暖蜜桃色皮肤（底色/暗部/高光三档锚点）", "required": true},
     {"key": "eyes_amber_brown", "label": "琥珀棕大眼 + 黑色粗上眼睑", "required": true},
     {"key": "cheek_marks", "label": "脸颊闪电状纹（侧脸只查可见侧）", "required": true},
     {"key": "age_childlike", "label": "10–12 岁少年脸型", "required": true}

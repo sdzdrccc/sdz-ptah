@@ -1,18 +1,23 @@
 ---
 name: sdz-ptah-avatar
-description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds), crop compensation, scoring, style/character/canvas/angle gates and PNG/JPG export at 1K/2K/4K. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left/right profiles, front, and faceless/armored (helmet/visor) characters with a head-contour metric set; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Reference-image driven generation is the default: one flat archived reference (`<prefix>-ref-N.png`, sha256 recorded in brief) is passed to backends that support it (Agnes image_to_image; no strength/seed/negative prompt, max 1 image), while backends without reference input (TRAE GenerateImage) fail with exit 4 unless the user explicitly consents to text2img (recorded as identity_unverified). Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar, Satoshi 小智, and faceless armor suits. Not for scene art or real-person photos.
+description: Generate anime avatars from a style profile + character card + angle matrix via prompt compiling, two-stage confirmation, budgeted generation (default 2 images per round, budget 10 counted across rounds). After every generation round it reports the source images plus a next-step menu (retouch / prompt change / reference change / other) and waits for the user's choice; crop, scoring and skin checks run only on request. After delivery, asks whether the user is satisfied and can re-generate a round from selectable improvement directions (style fidelity, composition, face features, outfit, angle, detail). Supports left/right profiles, front, and faceless/armored (helmet/visor) characters with a head-contour metric set; default facing follows gender (male left, female right, unspecified left) and is user-overridable. Reference-image driven generation is the default: one flat archived reference (`<prefix>-ref-N.png`, sha256 recorded in brief) is passed to backends that support it (Agnes image_to_image; no strength/seed/negative prompt, max 1 image), while backends without reference input (TRAE GenerateImage) fail with exit 4 unless the user explicitly consents to text2img (recorded as identity_unverified). Square full-bleed canvas with no border. Use for avatar requests including Ptah 普塔 avatar, Satoshi 小智, and faceless armor suits. Not for scene art or real-person photos.
 ---
 
 # SDZ Ptah Avatar（普塔头像）
 
 把一份「头像需求」执行成可交付的候选图。本 skill 只承担执行链：
 需求 → 三层档案（风格/角色/角度）→ 提示词编译 → 限量出图 →
-生成质量评分（原图）→ 取景裁切 → 交付校验（成品）→ 多格式导出。
+**出图即汇报原图 + 选项菜单（不自动后处理）** → 用户选定方向 →
+（按需）评分/裁切/肤色复测 → 多格式导出。
 
 > **第一原则：质量靠生成，后处理只做交付。**
 > 生成图不合适，裁切、放大、调色都救不回来；处理阶段只做取景裁切、几何/截断校验
 > 与格式导出，不把任何后处理当作提升观感的手段。原图不合格的正确动作是换提示词/
 > 换方向/追加候选重抽，不是调裁切参数或放宽阈值。详见「生成优先」一节。
+>
+> **出图即停**：每轮出完图，先把原图路径 + 关键事实汇报给用户，并给出下一步菜单
+> （修图 / 调整提示词 / 换参考图 / 其他），**等用户选**；不得自行先跑裁切、评分、
+> 肤色复测。评分与肤色复测只在用户明确要求时执行（见 protocol 3.4）。
 
 **三层结构**（新增风格或角色只加文件，不改脚本）：
 
@@ -31,6 +36,8 @@ description: Generate anime avatars from a style profile + character card + angl
 
 1. **处理只做交付**：只保留取景裁切、几何与截断校验、格式导出；不把裁切/放大/调色
    当成提升观感的手段，任何地方都不暗示后处理能改善质量。
+1.5 **出图即停**：出完图先汇报原图（路径 + 表情/构图/头顶留白/背景等可观察事实）
+   并给出下一步菜单，用户选定后才继续；评分、肤色复测、裁切都属「用户点名才跑」。
 2. **评分对象分开**：raw 原图单独出生成质量分（面部/轮廓、构图、风格、角度），
    final 只出交付校验分；两者都写进 manifest。成品过闸不得掩盖原图不合格
    （例如 final PASS 但 raw 已 `subject_cut`）。
@@ -78,12 +85,19 @@ description: Generate anime avatars from a style profile + character card + angl
 - **画布硬约束**：画布与导出一律方形、满出血；禁止边框、圆形遮罩、装饰圈。
   prompt 必须包含 `square canvas, no border, no frame, no circular mask, edge-to-edge`；
   流水线只产出方形预览，不再生成圆形遮罩图。
+- **取景必须给可量留白**：不许只写「镜头拉远」。画布顶部留出画布高度
+  **8%–10%**（大发型 12%–14%）的纯色空白，含最长发尖在内的全部内容在这条线以下，
+  头发/头部轮廓不得与上/左/右沿相接。大发型判据：角色卡 `hair.volume`
+  的 `edge_contact_sides ≥2` 或 `top_row_dark_run ≥0.02`；角色卡 `framing` 可覆盖。
 - **截断判定替代留边阈值**：贴边但主体完整放行；只有贴边连续主体段过宽且向内延续
   才判 `subject_cut`。顶部/左/右为硬门槛，底部胸像裁切只记录。
+  另设 `head_room` 硬闸门：成品上沿仍有主体像素（上留白 <2%）即判
+  `composition_bad:head_room`，**不随原图放宽**。
 - **裁切兜底（硬性）**：平涂背景下先算内容最高点，裁切上沿必须留出 6% 安全边距，
-  禁止切掉头顶/耳尖/头盔顶；同时约束成品上留白 1.5–16%、下留白 ≤18%、
-  主体占比 40–95%、顶部平切比 ≤22%。超限就重裁或驳回。
+  禁止切掉头顶/耳尖/头盔顶；同时约束成品上留白 1.5–16%（其中头顶完整另按 ≥2% 硬判）、
+  下留白 ≤18%、主体占比 40–95%、顶部平切比 ≤22%。超限就重裁或驳回。
   内容框不可靠（非平涂底）时记 `null`，不得当成通过。
+  头顶缺失属于生成端没画全：**不许靠裁切或补白「补」头发**，只能重出并先换参考图。
 - **闸门跑在成品上**：截断/留白/占比/平切在最终 1024 成品上重跑，manifest 同时
   记录原图 `raw` 与成品 `final_gate`；输入本身是成品方图时，原图内容闸门也生效。
 - **无脸不再直接判死**：`no_face` 先走头部/轮廓回退；回退也失败才记
@@ -223,6 +237,30 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 
 确认块写入前会补默认值并校验；**没有 `confirm.confirmed=true` 一律不得生成**。
 
+**选后端与分段**（`references/backends.v2.json` 登记的后端；确认页必须列出每段后端、
+许可是否可商用、是否会把参考图发往远端）：
+
+- 宿主单段（维护者路线，默认）：不加 `--stages`，后端为 `agnes-aigc-img2img`；
+  Agnes 会把参考图发往远端，用户同意后加 `--egress-consent`。
+- ModelScope 在线推理（免网页手工操作；需用户自己在环境变量 `MODELSCOPE_TOKEN` 设好 token）：
+  `--stages "single:modelscope-qwen-edit@steps=30" --egress-consent`，也可用
+  `modelscope-qwen-edit-2511` 作身份步。参考图会发往魔搭；免费推理服务条款为**非商用**，
+  确认页必须说明。token 绝不写进 brief、提示词文件或聊天记录。
+  执行智能体请按 `references/modelscope-runbook.md` 逐步操作（含 token 规则、退出码处理、报告模板）。
+- 本地 ComfyUI 两段式（项目默认路线，需本机 ComfyUI 已启动）：
+
+```powershell
+py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
+  --confirm "确认生成" --reference "<角色参考图路径>" `
+  --stages "identity:comfyui-qwen-edit-2511,style:comfyui-animagine-i2i@denoise=0.35" `
+  --seed 100
+```
+
+- `--stages` 只允许 `single` / `identity` / `identity,style`；分段参数 `denoise / steps /
+  guidance / seed / negative` 写在 `@` 后、用 `;` 分隔。未登记或 `available=false` 的后端直接拒绝。
+- `--seed`：订单内第 N 张用 `seed+N-1`，跨轮次不重复；不给则随机并记进 `generation.json`。
+- 改了分段、后端、seed 或外发同意，`params_hash` 会变，需要重新确认。
+
 ### 3. 编译提示词（顺序不可换）
 
 按 `references/protocol.md` 第 2.6 节拼接，顺序固定：
@@ -244,41 +282,57 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 `<image 1> 是身份与画风的唯一权威，只改角度、构图与背景。` 放在两段提示词开头
 （英文段见 protocol 3.2）；第 3–4 步照旧。文字不要再抢着描述发型/服装细节。
 
-### 4. 限量出图（先算预算）
+### 4. 限量出图（`scripts/generate.py`，先算预算）
 
 - 首轮张数以 `brief.count` 为准（默认 2，上限为预算）；需要变体时最多再 1 张。
-- **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true` 才可调用生成工具；
-  没有确认块就回第二段确认页，不许直接抽。
-- **参考图模式（默认）**：按宿主选择工具——TRAE 用 `GenerateImage`（不支持参考图，
-  只能走 text2img 且需用户显式同意）；Agnes 用 `agnes_aigc__image_to_image`，
-  传 `original_prompt`（中文）+ `enhanced_prompt`（英文）+ `reference_image`
-  （订单目录里的 `<prefix>-ref-1.png`）。两段提示词都以固定句开头：
-  `<image 1> 是身份与画风的唯一权威，只改角度、构图与背景。`（英文见 protocol 3.2）。
-  **不要传 strength、seed、负向词；参考图最多 1 张。**
-- 整单不超过 `--budget`（默认 10），且**按当前订单累计**。生成前先跑
-  `rounds.py --reconcile` 补账、再跑 `rounds.py --check`；余额 ≤0 必须停下说明
-  「预算用尽」并等用户决定是否追加，追加确认后才用 `--budget N` 调大，不许静默超额。
-- 调用前在 `status.json` 记 `budget.limit`；每成功生成一张，`used += 1`、
-  `remaining -= 1`，并与 `raw_count` 同步，不要事后补账。
-- `image_size`: `square`；`path`: 绝对路径、**不带扩展名**，先落临时中转目录，
-  文件名用 `<angle>_v1_r1` 区分角度/变体（轮次仍由元数据记录），
-  生成后立即 `Move` 到 `<订单目录>/`，不允许把原图留在 `%TEMP%`；
-  进目录后由流水线统一改名为 `<前缀>-avatar-<N>-src.<ext>`。
-- 生成前先 `ToolSearch` 取实际生成工具的 schema（TRAE `GenerateImage` / Agnes
-  `agnes_aigc__image_to_image`），再用 `DeferExecuteTool` 调用；schema 里没有的入参
-  一律不传，不要伪造 `image_paths` / `strength` / `seed`。
-  每次调用后核对文件存在且可打开；打不开记为失败，不继续算分。
-- 出图后先放大到 800px 看鼻梁后方，出现第二只眼/眼白直接弃用，
-  不进入评分。重抽最多 1 张，且必须换「远眼不可见」的措辞。
-- 一轮生成完成后立即记账（只写 `rounds.json`，不建目录）：
+- **生成前必须确认**：`brief.json` 的 `confirm.confirmed` 为 `true`；否则 `generate.py`
+  直接退出码 4，回第二段确认页，不许直接抽。
+- 生成前先跑 `rounds.py --reconcile` 补账；`generate.py` 会按**调用次数**预检预算
+  （张数 × 段数，两段式每张算 2 次）。余额不足退出码 5：必须停下说明「预算用尽」并等用户决定，
+  用户确认追加后才加 `--allow-over-budget`（或先用 `rounds.py --budget N` 调大），不许静默超额。
+- 先预检再出图：
 
 ```powershell
-py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record `
-  --round 1 --count 2 --directions "" `
-  --files "satoshi-avatar-1.png,satoshi-avatar-2.png"
+py -3 "$skill\scripts\generate.py" --order "<订单目录>" `
+  --prompt-zh "<第 3 步编译的中文段>" --prompt-en "<英文段 / Danbooru tag>" --dry-run
+py -3 "$skill\scripts\generate.py" --order "<订单目录>" `
+  --prompt-zh "<中文段>" --prompt-en "<英文段>" [--negative "<负向词>"]
 ```
 
-### 5. 跑裁切与评分
+  提示词较长时写进 JSON 用 `--prompt-file`（可按阶段覆盖：`{"stages": {"style": {"prompt_en": ...}}}`）。
+  Animagine 一类 tag 模型的英文段必须是 Danbooru tag 并带 `safe`；注册表 `defaults` 会补默认负向词。
+- **退出码**（不得把非 0 当成功，也不得自行换后端）：
+
+| 码 | 含义 | 处理 |
+|-|-|-|
+| 0 | 原图已落 `<前缀>-avatar-<N>-src.<ext>`，已记账 | **立即汇报原图 + 选项菜单，等用户选**（默认不跑评分） |
+| 2 | 输入错误 / 有未完成的生成 | 按提示修正；有未完成生成时用 `--resume` 或 `--discard-pending` |
+| 4 | 未确认 / 能力不满足 / 未同意外发 / 配置错误 | 不换后端、不退回文生图；改 brief 后重新确认 |
+| 5 | 预算不足 | 问用户是否追加 |
+| 8 | 后端故障（如 ComfyUI 未启动、执行报错） | 已花调用记在 `generation-pending.json`；修复后 `--resume`，放弃用 `--discard-pending`（已花调用补进 `rounds.json` 的 `unaccounted`） |
+| 9 | 宿主侧后端：已写出 `<前缀>-call-<N>.json` | 宿主按调用单执行（见下），再 `--resume` |
+
+- **宿主侧后端（Agnes / TRAE）执行调用单**：每个 `<前缀>-call-<N>.json` 给出 `tool`、`args`
+  与 `expected_output`。先 `ToolSearch` 取该工具的 schema，再用 `DeferExecuteTool` 调用；
+  **只传 `args` 里的入参**，schema 里没有的一律不传（Agnes 不传 strength / seed / 负向词，
+  参考图最多 1 张）。生成后立即把图移进订单目录并命名为 `expected_output`
+  （宿主产物是 jpg 时扩展名用 `.jpg`），不得留在 `%TEMP%`；打不开的图不要放回。
+  全部放回后运行 `generate.py --order "<订单目录>" --resume`；只放回部分时会再次退出码 9，
+  只为缺的编号重写调用单。
+- 两段式会同时保留 `<前缀>-avatar-<N>-s1.<ext>`（身份步证据图），评分流水线不把它当原图。
+- `generate.py` 负责记账：`rounds.json` 新增一轮（`count` = 调用次数，另记 `images` /
+  `calls` / `stages`），`generation.json` 记分段、seed、后端结果与许可快照，`prompts.json`
+  追加本轮提示词，`status.json` 更新 `budget` / `raw_count`。**不要再手工 `rounds.py --record`**，
+  否则会重复记账。
+- 出图后先放大到 800px 看鼻梁后方，出现第二只眼/眼白直接弃用，
+  不进入评分。重抽最多 1 张，且必须换「远眼不可见」的措辞。
+- 旧流程（宿主手工生成、再 `rounds.py --record`）仍可用于没有 `generate.py` 的宿主；
+  两种方式不要在同一轮混用。
+
+### 5. （按需）跑裁切与评分
+
+> 默认**不执行**本节。只有用户明确要求「评分 / 裁切 / 复测肤色 / 导出」时才跑；
+> 用户没点名时，出图后的动作只有两件：汇报原图 + 给选项菜单（protocol 3.4）。
 
 ```powershell
 $skill = Join-Path $env:USERPROFILE ".trae-cn\skills\sdz-ptah-avatar"
@@ -389,9 +443,13 @@ contact sheet 路径（本单 `<前缀>-avatar-<起>-<止>-sheet.jpg`）、交�
 ```powershell
 py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --preview --directions composition,detail
 py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --check
-py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
-  --count 2 --directions composition,detail
+py -3 "$skill\scripts\generate.py" --order "<订单目录>" `
+  --prompt-file "<订单目录>\prompts.next.json" --directions composition,detail
 ```
+
+  `--preview` 给出的措辞并进本轮提示词；`generate.py` 自动按下一轮编号记账并记录方向，
+  不再另跑 `rounds.py --record`。没有 `generate.py` 的宿主仍按旧流程
+  `rounds.py --record --round 2 --count 2 --directions ...` 记账。
 
 - 方向落回：`style_fidelity` → 风格锚点；`face_features` / `outfit` → 角色卡块；
   `composition` / `detail` → 构图尾段；`angle` → 翻转 `brief.angle`（左↔右）。
@@ -426,6 +484,7 @@ py -3 "$skill\scripts\rounds.py" --order "<订单目录>" --record --round 2 `
   非平涂底记 `null` 并由人眼复核，不把「算不出」当成通过。
 - 角度判定覆盖侧脸双向、正脸与无脸面罩；单眼判定可能把「远眼没检出的 3/4 脸」当成侧脸，
   正脸眼位区间又不能套侧脸，所以 800px 人工查第二只眼仍是必做步骤。
+- 后端能力以 `references/backends.v2.json` 为准（缺失时读 1.0 `backends.json`）；运行 `py -3 -m backends list` / `probe <id>` 查看与检测（在 skill 根目录下）。
 - 参考图能力按宿主区分，不由本 skill 保证：`trae-generateimage` **不支持**参考图入参；
   `agnes-aigc-img2img`（Agnes `image_to_image`）支持单张参考图，但无 strength/seed/
   负向词。换宿主后必须重跑 `backends.json` 能力检测，不能沿用旧结论。

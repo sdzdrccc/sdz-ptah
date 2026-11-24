@@ -1,0 +1,103 @@
+{
+  "schema": "character-card/1.1",
+  "character_id": "goku",
+  "display_name": "孙悟空",
+  "style_id": "tv-anime-cel",
+  "gender": "male",
+  "version": "1.1.0",
+  "source": {
+    "reference": "F:\\zxc\\Project\\sdzdrccc\\头像\\孙悟空\\Image-00-20-06.png",
+    "note": "身份项逐项取自该参考图（1080×1080，白底胸像，正面，深色尖刺发，橙色武道服）。参考图顶部与左右两侧的发尖被画面切掉、肩线在画面底边被切，属于取景不足而非身份问题；出图时要求镜头略微拉远、发尖完整入镜。"
+  },
+  "face_mode": "faced",
+  "age_group": "adult",
+  "hair": {
+    "color": "纯黑，无明显高光块，仅在发束转折处有一点冷灰提亮",
+    "shape": "极长的放射状尖刺造型，三角形发尖锐利，从头顶与两侧向外张开；顶部数根最长，左右两侧的尖发向外平伸",
+    "bangs": "额前数缕锋利的刀形刘海，其中一缕尖发垂到两眉之间，其余向两侧分开",
+    "note": "发尖必须画完整，不能被画布边缘切断；不要画成柔顺短发或卷发",
+    "volume": {
+      "level": "large",
+      "edge_contact_sides": 3,
+      "top_row_dark_run": 0.198,
+      "spike_length": "long",
+      "measured_on": "goku-ref-1.png",
+      "note": "参考图 1080² 上，第 0 行有 214 px（19.8% 画面宽）连续黑发，且顶部/左侧/右侧三边都被发尖顶到。按 compile_prompt.canvas_pair 的判据，这属于大发型：必须要求 12%–14% 的头顶留白，并显式禁止发尖出画。"
+    }
+  },
+  "outfit": {
+    "top": "橙色武道服（龟仙流），宽厚的橙色衣领从两侧交叠到胸前，领口开得较大",
+    "under": "领口内露出深蓝色圆领内衬，胸口下半部也是深蓝色",
+    "note": "本张参考图没有露出胸前徽记与腰带，不要自行添加文字或标志；配色素净，只有橙与深蓝",
+    "accessories": "无饰品、无护腕、无帽子"
+  },
+  "face": {
+    "shape": "成年男性脸型，方正下颌，下巴结实，脖子粗壮",
+    "eyes": "细长的眼睛，眼白干净，黑色小瞳孔，上眼睑线条较粗",
+    "brows": "浓黑的粗眉，眉头下压、眉尾上扬，呈坚毅/略带怒意的角度",
+    "nose": "简笔小鼻，只用一条短线表示鼻底",
+    "mouth": "嘴闭合，嘴角略向下，表情严肃",
+    "skin": "浅暖蜜桃色，低饱和；具体色值见 skin_spec",
+    "age_feel": "二十岁上下的青年，不是 10–12 岁少年，也不是中年"
+  },
+  "framing": {
+    "headroom_min": 0.12,
+    "headroom_max": 0.14,
+    "note": "大发型专用取景：头顶留白按画布高度 12%–14%，由 hair.volume 判据推导，不是拍脑袋"
+  },
+  "skin_spec": {
+    "schema": "skin-anchors/1.1",
+    "note": "由参考图 Image-00-20-06.png 实测（脸框 256,428,820,930）。底色取明度直方图主峰 V90–92；主暗部取真实存在的暖红转折面（V≈88.6，直方图次峰，占首峰 32%）；深投影取 V76–84 的深色面（V≈78.5）。高光上限取 V95.5–97.5 的均值。2026-11-24 出图实测：两张成品的暗部为 #E2977F / #E39B82，与主暗部锚点 ΔE 1.8，证明此前把深投影当唯一暗部是锚点定义错误。",
+    "base": {
+      "hex": "#EBBDA0",
+      "role": "面部受光面的主色"
+    },
+    "shadow": {
+      "hex": "#E2977F",
+      "role": "主暗部：鼻侧与脸颊转折的一层暖红，面积占脸部的次要部分"
+    },
+    "deep_shadow": {
+      "hex": "#C87661",
+      "role": "深投影：只在下颌线、颈下与发际下方的小面积压深"
+    },
+    "highlight_cap": {
+      "hex": "#F6C2A2",
+      "role": "皮肤最亮处的上限，不得超过"
+    }
+  },
+  "signature": "夸张的放射状黑色尖刺发 + 橙色武道服配深蓝内衬",
+  "prompt_block": "黑发，极长的放射状尖刺造型，发尖锐利向外张开，额前有数缕锋利刘海，其中一缕垂到两眉之间；成年男性，方正下颌、脖颈粗壮、体格结实；细长坚毅的眼睛，黑色瞳孔，粗黑上扬的浓眉，鼻子只用一条短线，嘴闭合略向下；橙色武道服，宽橙色衣领交叠胸前，领口内露出深蓝内衬；不戴帽子，不戴任何饰品。",
+  "prompt_block_en": "black hair in extremely long radiating sharp spikes with sharp tips fanning outward, several blade-like bangs over the forehead and one strand dropping between the brows; adult male with a square jaw, thick neck and sturdy build; narrow resolute eyes with black pupils, thick black angled eyebrows, a simple short-line nose and a small closed downturned mouth; orange martial-arts gi with a wide crossed orange collar and a dark navy undershirt at the neckline; no hat and no accessories.",
+  "checklist": [
+    {
+      "key": "hair_black_spikes",
+      "label": "纯黑放射状尖刺长发，发尖完整不被切断",
+      "required": true
+    },
+    {
+      "key": "adult_square_jaw",
+      "label": "成年男性方正下颌与粗壮脖颈（不是少年脸）",
+      "required": true
+    },
+    {
+      "key": "eyes_black_narrow",
+      "label": "细长眼睛 + 黑色瞳孔 + 粗黑上扬浓眉",
+      "required": true
+    },
+    {
+      "key": "outfit_orange_navy",
+      "label": "橙色武道服宽领 + 深蓝内衬，无文字与徽记",
+      "required": true
+    },
+    {
+      "key": "skin_anchor",
+      "label": "底色 #EBBDA0 / 暗部 #CCA68C / 高光不超过 #F6C2A2",
+      "required": true
+    },
+    {
+      "key": "no_headwear",
+      "label": "不戴帽子、无饰品",
+      "required": true
+    }
+  ]
+}

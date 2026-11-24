@@ -1,0 +1,590 @@
+{
+  "schema": "generation-backends/2.0",
+  "version": "2.0.0",
+  "default_backend": "comfyui-animagine-t2i",
+  "host_note": "宿主侧后端（agent_side）由宿主执行调用；本地后端（executable）由 Python 直接调用。换宿主或换机器必须重新运行 `py -3 -m backends probe <id>`。",
+  "fallback_policy": {
+    "default": "fail",
+    "text2img": "只有 generation.text2img_consent=true 才放行，manifest 记 identity_unverified=true",
+    "exit_code": 4,
+    "cross_backend": "禁止自动换后端；换后端必须改 brief.generation.stages 并重新走确认门"
+  },
+  "backends": [
+    {
+      "id": "agnes-aigc-img2img",
+      "display_name": "Agnes AIGC image_to_image（维护者路线）",
+      "engine": "host",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "host": {
+        "tool": "agnes_aigc__image_to_image",
+        "params": {
+          "prompt_zh": "original_prompt",
+          "prompt_en": "enhanced_prompt",
+          "reference": "reference_image",
+          "size": "size",
+          "ratio": "ratio"
+        }
+      },
+      "capabilities": {
+        "reference_max": 1,
+        "reference_roles": [
+          "identity"
+        ],
+        "sizes": [
+          1024,
+          1920
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "model": {
+        "name": "agnes-i2i-general-model",
+        "version": null
+      },
+      "license": {
+        "id": "宿主条款",
+        "commercial_use": null,
+        "notes": "未确认"
+      },
+      "note": "2026-11-23 订单 20261123-100911 已实测：身份可锁、画风未锁。"
+    },
+    {
+      "id": "trae-generateimage",
+      "display_name": "TRAE GenerateImage（对照）",
+      "engine": "host",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "host": {
+        "tool": "GenerateImage",
+        "params": {
+          "prompt_zh": "prompt",
+          "size": "image_size"
+        }
+      },
+      "capabilities": {
+        "reference_max": 0,
+        "sizes": [
+          1024,
+          1920
+        ],
+        "stages": [
+          "single"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "model": {
+        "name": "host-t2i",
+        "version": null
+      },
+      "license": {
+        "id": "宿主条款",
+        "commercial_use": null
+      }
+    },
+    {
+      "id": "comfyui-animagine-t2i",
+      "display_name": "ComfyUI · Animagine XL 4.0 文生图",
+      "engine": "comfyui",
+      "available": true,
+      "verified": false,
+      "external_reproducible": true,
+      "data_egress": false,
+      "comfyui": {
+        "url": "http://127.0.0.1:8188",
+        "workflow": "workflows/sdxl_t2i.api.json",
+        "output_node": "9",
+        "bindings": {
+          "positive": [
+            "6",
+            "text"
+          ],
+          "negative": [
+            "7",
+            "text"
+          ],
+          "seed": [
+            "3",
+            "seed"
+          ],
+          "steps": [
+            "3",
+            "steps"
+          ],
+          "guidance": [
+            "3",
+            "cfg"
+          ],
+          "filename_prefix": [
+            "9",
+            "filename_prefix"
+          ],
+          "width": [
+            "5",
+            "width"
+          ],
+          "height": [
+            "5",
+            "height"
+          ]
+        },
+        "timeout_s": 600
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 0,
+        "batch_max": 1,
+        "sizes": [
+          1024
+        ],
+        "stages": [
+          "single"
+        ],
+        "prompt_style": "booru_tags"
+      },
+      "defaults": {
+        "steps": 28,
+        "guidance": 5.0,
+        "negative": "lowres, bad anatomy, bad hands, text, error, missing finger, extra digits, fewer digits, cropped, worst quality, low quality, low score, bad score, average score, signature, watermark, username, blurry, nsfw, explicit"
+      },
+      "model": {
+        "name": "Animagine XL 4.0 Opt",
+        "version": "4.0-opt",
+        "file": "animagine-xl-4.0-opt.safetensors",
+        "sha256": null,
+        "source": "https://huggingface.co/cagliostrolab/animagine-xl-4.0"
+      },
+      "license": {
+        "id": "CreativeML Open RAIL++-M",
+        "commercial_use": true,
+        "redistribute_weights": false,
+        "notes": "有用途限制条款；下载时展示许可并要求确认"
+      },
+      "note": "待 5060 Ti 实测（实测表 T1）。ckpt 文件名按本机实际修改并补 sha256。"
+    },
+    {
+      "id": "comfyui-animagine-i2i",
+      "display_name": "ComfyUI · Animagine XL 4.0 图生图（两段式画风步）",
+      "engine": "comfyui",
+      "available": true,
+      "verified": false,
+      "external_reproducible": true,
+      "data_egress": false,
+      "comfyui": {
+        "url": "http://127.0.0.1:8188",
+        "workflow": "workflows/sdxl_i2i.api.json",
+        "output_node": "9",
+        "bindings": {
+          "positive": [
+            "6",
+            "text"
+          ],
+          "negative": [
+            "7",
+            "text"
+          ],
+          "seed": [
+            "3",
+            "seed"
+          ],
+          "steps": [
+            "3",
+            "steps"
+          ],
+          "guidance": [
+            "3",
+            "cfg"
+          ],
+          "filename_prefix": [
+            "9",
+            "filename_prefix"
+          ],
+          "denoise": [
+            "3",
+            "denoise"
+          ],
+          "init_image": [
+            "10",
+            "image"
+          ]
+        },
+        "timeout_s": 600
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 0,
+        "init_image": true,
+        "denoise_range": [
+          0.15,
+          0.6
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024
+        ],
+        "stages": [
+          "style"
+        ],
+        "prompt_style": "booru_tags"
+      },
+      "model": {
+        "name": "Animagine XL 4.0 Opt",
+        "version": "4.0-opt",
+        "file": "animagine-xl-4.0-opt.safetensors",
+        "sha256": null,
+        "source": "https://huggingface.co/cagliostrolab/animagine-xl-4.0"
+      },
+      "license": {
+        "id": "CreativeML Open RAIL++-M",
+        "commercial_use": true,
+        "redistribute_weights": false,
+        "notes": "有用途限制条款；下载时展示许可并要求确认"
+      },
+      "note": "待实测（实测表 T4a–c：denoise 0.25 / 0.35 / 0.45）。",
+      "defaults": {
+        "steps": 28,
+        "guidance": 5.0,
+        "negative": "lowres, bad anatomy, bad hands, text, error, missing finger, extra digits, fewer digits, cropped, worst quality, low quality, low score, bad score, average score, signature, watermark, username, blurry, nsfw, explicit"
+      }
+    },
+    {
+      "id": "comfyui-qwen-edit-2511",
+      "display_name": "ComfyUI · Qwen-Image-Edit-2511 Q4_K_M（身份步）",
+      "engine": "comfyui",
+      "available": false,
+      "verified": false,
+      "external_reproducible": true,
+      "data_egress": false,
+      "comfyui": {
+        "url": "http://127.0.0.1:8188",
+        "workflow": "workflows/qwen_image_edit_2511.api.json",
+        "output_node": null,
+        "bindings": {},
+        "timeout_s": 900
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 3,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "model": {
+        "name": "Qwen-Image-Edit-2511",
+        "version": "2511",
+        "quant": "Q4_K_M",
+        "sha256": null
+      },
+      "license": {
+        "id": "Apache-2.0",
+        "commercial_use": true,
+        "redistribute_weights": false,
+        "notes": "不要混用研究许可的 Qwen-Image-2.1"
+      },
+      "note": "从 ComfyUI 内置模板 image_qwen_image_edit_2511 导出 API 格式到上述路径，按节点 id 填 bindings（positive / negative / seed / steps / guidance / reference_1..3 / filename_prefix），再把 available 改为 true。"
+    },
+    {
+      "id": "comfyui-neta-lumina-t2i",
+      "display_name": "ComfyUI · Neta Lumina 文生图（中文）",
+      "engine": "comfyui",
+      "available": false,
+      "verified": false,
+      "external_reproducible": true,
+      "data_egress": false,
+      "comfyui": {
+        "url": "http://127.0.0.1:8188",
+        "workflow": "workflows/neta_lumina_t2i.api.json",
+        "output_node": null,
+        "bindings": {},
+        "timeout_s": 600
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 0,
+        "batch_max": 1,
+        "sizes": [
+          1024
+        ],
+        "stages": [
+          "single"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "model": {
+        "name": "neta-lumina-v1.0",
+        "version": "1.0",
+        "sha256": null
+      },
+      "license": {
+        "id": "Apache-2.0（主模型 / VAE）+ Gemma Terms of Use（文本编码器）",
+        "commercial_use": true,
+        "redistribute_weights": false,
+        "notes": "再分发或托管服务需满足 Gemma 条款"
+      },
+      "note": "从官方 lumina_workflow.json 导出 API 格式后填写 bindings。"
+    },
+    {
+      "id": "modelscope-qwen-edit",
+      "display_name": "ModelScope 在线 · Qwen-Image-Edit（身份步）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": false,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "Qwen/Qwen-Image-Edit",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 3,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "Qwen/Qwen-Image-Edit",
+        "version": null
+      },
+      "license": {
+        "id": "ModelScope 免费推理服务条款",
+        "commercial_use": false,
+        "notes": "免费推理服务非商用、动态限流；参考图会发往远端，需 egress_consent"
+      },
+      "note": "公开模型列表中可见。适配器已实现，待用真实 token 出图验证；参考图以 base64 data URI 传入，若服务不接受需改方案。API 是否支持网页端的「参考强度」未知，未传。"
+    },
+    {
+      "id": "modelscope-qwen-edit-2511",
+      "display_name": "ModelScope 在线 · Qwen-Image-Edit-2511（身份步）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": false,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "Qwen/Qwen-Image-Edit-2511",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 3,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "Qwen/Qwen-Image-Edit-2511",
+        "version": null
+      },
+      "license": {
+        "id": "ModelScope 免费推理服务条款",
+        "commercial_use": false,
+        "notes": "免费推理服务非商用、动态限流；参考图会发往远端，需 egress_consent"
+      },
+      "note": "不在公开列表中，但有第三方通过 API 调用成功的记录；待用真实 token 验证。权重为 Apache-2.0，与本地默认路线同一模型，可用于在线 A/B。"
+    },
+    {
+      "id": "modelscope-qwen-image-2.1",
+      "display_name": "ModelScope 在线 · Qwen-Image-2.1（生图/编辑）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": false,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "Qwen/Qwen-Image-2.1",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 10,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "Qwen/Qwen-Image-2.1",
+        "version": "2.1"
+      },
+      "license": {
+        "id": "Qwen Research License（模型权重）+ ModelScope 免费推理服务条款（服务）",
+        "commercial_use": false,
+        "redistribute_weights": false,
+        "notes": "权重为研究许可，商用前需另看条款；免费推理服务非商用、动态限流；1 魔粒/次；参考图会发往远端，需 egress_consent"
+      },
+      "note": "网页端实测（方案文档 C.5）身份与画风同时锁住，效果为四个在线模型里最好。官方能力：文生图+图像编辑统一，最多 10 张参考图，原生 2K（2048²），支持 RGBA 与局部编辑；API 侧 size 传 1024/1328，未开放 2K。适配器已实现，待用真实 token 出图验证；参考图以 base64 data URI 传入，若服务不接受需改方案。"
+    },
+    {
+      "id": "modelscope-minimax-h3-image",
+      "display_name": "ModelScope 在线 · MiniMax-H3-Image（生图/编辑）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": false,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "MiniMax/MiniMax-H3-Image",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2,
+        "size_param": false,
+        "steps_param": false,
+        "guidance_param": false
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 16,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "MiniMax/MiniMax-H3-Image",
+        "version": null
+      },
+      "license": {
+        "id": "MiniMax-H3-Image Community License Agreement（权重）+ ModelScope 免费推理服务条款（服务）",
+        "commercial_use": false,
+        "redistribute_weights": false,
+        "notes": "社区许可：年化营收超 100 万美元或向第三方提供托管服务须获 MiniMax 书面授权；免费推理服务非商用、动态限流；2 魔粒/次；参考图会发往远端，需 egress_consent"
+      },
+      "note": "网页端实测（方案文档 C.5）6 步出 4096² 图、线条清晰，但许可与开放权重情况比 Qwen-Image-2.1 复杂。API 硬限制：negative_prompt 传了直接 HTTP 400（注册表已设 negative_prompt=false，brief 里带了也会被适配器忽略）；steps/guidance 只能用默认值（否则 400，已用 steps_param/guidance_param=false 关闭发送）；原生建议 16MP（4096²），API 侧 size 未开放该档，画布仍走 1024。最多 16 张参考图。适配器已实现，待真实 token 出图验证。"
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>sdz-ptah 本地控制台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>sdz-ptah 本地控制台</h1>
+    <p id="metaLine">正在读取项目信息…</p>
+  </div>
+  <details class="help">
+    <summary>使用说明</summary>
+    <ol>
+      <li>先新建或选择一个订单。</li>
+      <li>参考图模式需先上传参考图；无参考图方案需勾选文生图同意。</li>
+      <li>选一张方案卡，阅读外发、许可、未实测提示。</li>
+      <li>点“确认方案”，再点“只校验”或“正式生成”。</li>
+      <li>任何换方案都会写新的 brief 参数，需要重新确认。</li>
+    </ol>
+  </details>
+</header>
+
+<main class="layout">
+  <section class="panel left">
+    <h2>订单</h2>
+    <form id="orderForm" class="form">
+      <label>角色 ID（英文/数字，可新建）
+        <input id="characterInput" list="characterOptions" value="satoshi" placeholder="例如 my_hero">
+        <datalist id="characterOptions"></datalist>
+      </label>
+      <label>风格 ID（英文/数字，可新建）
+        <input id="styleInput" list="styleOptions" value="tv-anime-cel">
+        <datalist id="styleOptions"></datalist>
+      </label>
+      <details class="advanced">
+        <summary>角色/风格描述（可选）</summary>
+        <label>角色名称
+          <input id="characterNameInput" placeholder="例如 小智">
+        </label>
+        <label>角色描述
+          <textarea id="characterDescInput" rows="2" placeholder="外貌、服装、识别点…"></textarea>
+        </label>
+        <label>角色描述（英文，可选）
+          <textarea id="characterDescEnInput" rows="2" placeholder="用于英文提示词段"></textarea>
+        </label>
+        <label>风格描述
+          <textarea id="styleDescInput" rows="2" placeholder="例如 90 年代 TV 动画赛璐璐…"></textarea>
+        </label>
+        <p class="hint">留空描述时沿用已有档案；填了描述会在应用目录生成自定义档案，不改项目原件。</p>
+      </details>
+      <label>性别
+        <select id="genderSelect">
+          <option value="unspecified">未指定</option>
+          <option value="male">男</option>
+          <option value="female">女</option>
+        </select>
+      </label>
+      <label>朝向
+        <select id="angleSelect">
+          <option value="">按规则默认</option>
+          <option value="front">正脸</option>
+          <option value="profile_left">朝左</option>
+          <option value="profile_right">朝右</option>
+        </select>
+      </label>
+      <label>张数
+        <input id="countInput" type="number" min="1" max="20" value="1">
+      </label>
+      <label>预算
+        <input id="budgetInput" type="number" min="1" max="200" value="10">
+      </label>
+      <button type="submit">新建订单</button>
+    </form>
+    <div id="orderList" class="order-list"></div>
+  </section>
+
+  <section class="panel center">
+    <div id="orderHeader" class="order-header">未选择订单</div>
+
+    <h2>生成方案</h2>
+    <div id="presetList" class="preset-list"></div>
+
+    <div class="card">
+      <h3>参考图与确认</h3>
+      <div id="referenceList" class="reference-list"></div>
+      <label class="upload">
+        上传参考图
+        <input id="referenceFile" type="file" accept=".png,.jpg,.jpeg,.webp">
+      </label>
+      <div class="checks">
+        <label><input id="egressConsent" type="checkbox"> 我同意把参考图发往远端服务</label>
+        <label><input id="text2imgConsent" type="checkbox"> 无参考图方案：同意关闭参考图</label>
+        <label><input id="commercialIntent" type="checkbox"> 这是可商用订单（会拦截非商用方案）</label>
+      </div>
+      <label>Seed（可空）
+        <input id="seedInput" type="number" placeholder="例如 100">
+      </label>
+      <button id="confirmButton" class="primary" disabled>确认方案</button>
+      <p id="confirmHint" class="hint">先选择一张可用方案。</p>
+    </div>
+
+    <div class="card">
+      <h3>生成</h3>
+      <div class="actions">
+        <button id="dryRunButton" disabled>只校验 dry-run</button>
+        <button id="generateButton" class="primary" disabled>正式生成</button>
+        <button id="resumeButton" disabled>续跑未完成</button>
+        <button id="discardButton" disabled>放弃未完成</button>
+      </div>
+      <p class="hint">独立网页不会替 WorkBuddy 执行宿主工具；遇到调用单时按脚本提示续跑。</p>
+    </div>
+  </section>
+
+  <aside class="panel right">
+    <h2>状态与结果</h2>
+    <div id="statusBox" class="status-box"></div>
+    <h3>运行输出</h3>
+    <pre id="console" class="console">尚未运行。</pre>
+    <h3>图片</h3>
+    <div id="gallery" class="gallery"></div>
+  </aside>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

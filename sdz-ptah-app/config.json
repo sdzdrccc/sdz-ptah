@@ -1,0 +1,7 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "open_browser": true,
+  "orders_root": "F:/zxc/Project/sdz-ptah/avatar-orders",
+  "skill_root": "F:/zxc/Project/sdz-ptah/skills/sdz-ptah-avatar"
+}

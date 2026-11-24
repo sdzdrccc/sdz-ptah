@@ -44,6 +44,11 @@ EYE_AREA_MAX = 0.015    # 占采样画面比例上限，排除大块背景/衣�
 # 构图 / 评分（与方案文档 1.3、3.4 一致）
 TARGET_RATIOS = [0.56, 0.62, 0.68]   # 三档候选裁切的目标脸占比
 EYE_TARGET = 0.26                    # 眼睛在裁切图中的目标纵向位置
+# 取景范围：head_shoulders 只到头部+肩部（下沿锁骨上方一点），脸要更大、眼位略低，
+# 同时用「下巴以下最多留 0.30s」限制把胸部挡在画外，避免又退回胸像比例。
+SCOPE_RATIOS = {"bust": TARGET_RATIOS, "head_shoulders": [0.74, 0.82, 0.90]}
+SCOPE_EYE_TARGET = {"bust": EYE_TARGET, "head_shoulders": 0.30}
+SCOPE_BELOW_CHIN = {"bust": None, "head_shoulders": 0.30}
 MARGIN_BUILD = 0.05                  # 裁切时预留的余量（只影响构建，不作硬门槛）
 CHIN_MIN = 0.05
 CHIN_BUILD = 0.06
@@ -88,6 +93,11 @@ CONTENT_SHARE_MIN = 0.05         # 内容框面积占比下限，低于此视为
 HEAD_SAFE_MARGIN = 0.06          # 裁切时头顶到画布上沿的安全边距
 TOP_BLANK_MIN = 0.015            # 成品上留白下限（原图有空间时才检查）
 TOP_BLANK_MAX = 0.16             # 成品上留白上限
+# 头顶完整性：画面最上沿只要还有主体像素，就说明头顶（发尖/头盔顶）被画布切断。
+# 旧逻辑在「原图头顶贴边」时把成品上留白下限放宽到 0，等于承认并继承了缺失；
+# 实测 goku 两张 top_blank=0、第 0 行有 187~203 px 连续黑发，被这条放宽掩盖。
+# 现在独立成硬判据：上沿留白 < 2% 画布高度即判 head_room，不再随原图放宽。
+HEADROOM_MIN = 0.02
 BOTTOM_BLANK_MAX = 0.18          # 成品下留白上限（胸像可贴底）
 SUBJECT_SHARE_MIN = 0.40         # 内容框面积 / 画布面积 下限
 # 满出血头像的主体可以几乎铺满画布（实测 0.953 是正常紧构图，不是缺陷）。
@@ -148,6 +158,7 @@ REASON_LABEL = {
     "composition_bad:eye_y": "眼睛纵向位置越界",
     "composition_bad:subject_cut": "主体被画面边缘截断",
     "composition_bad:head_cut": "头顶被裁平（内容最高行连续段过宽）",
+    "composition_bad:head_room": "头顶/发尖贴住画布上沿（上方留白不足 2%）",
     "composition_bad:whitespace": "上下留白越界",
     "composition_bad:subject_share": "主体占画面比例越界",
     "composition_bad:head_ratio": "头部轮廓占比越界",
@@ -609,6 +620,8 @@ def _content_gate(content, raw_content=None):
         "bottom_blank": content["bottom_blank"] <= BOTTOM_BLANK_MAX,
         "subject_share": SUBJECT_SHARE_MIN <= content["share"] <= SUBJECT_SHARE_MAX,
         "head_not_flat": content["top_run_ratio"] <= HEAD_CUT_RUN_RATIO,
+        # 不随原图放宽：头顶贴边就是缺头发/缺头盔顶，不能由「原图本来就贴边」洗白
+        "head_room": content["top_blank"] >= HEADROOM_MIN,
     }
     reasons = []
     if not checks["top_blank"] or not checks["bottom_blank"]:
@@ -617,12 +630,15 @@ def _content_gate(content, raw_content=None):
         reasons.append("composition_bad:subject_share")
     if not checks["head_not_flat"]:
         reasons.append("composition_bad:head_cut")
+    if not checks["head_room"]:
+        reasons.append("composition_bad:head_room")
     return {"applied": True, "passed": not reasons, "checks": checks,
             "reasons": reasons, "metric_set": "content_bbox",
             "thresholds": {"top_blank_min": top_min, "top_blank_max": TOP_BLANK_MAX,
                            "bottom_blank_max": BOTTOM_BLANK_MAX,
                            "subject_share": [SUBJECT_SHARE_MIN, SUBJECT_SHARE_MAX],
-                           "top_run_ratio_max": HEAD_CUT_RUN_RATIO}}
+                           "top_run_ratio_max": HEAD_CUT_RUN_RATIO,
+                           "headroom_min": HEADROOM_MIN}}
 
 
 def _content_head(img, content=None):
@@ -1026,12 +1042,15 @@ def _count_faces(img):
 
 # ---------------------------------------------------------------- 裁切与评分
 
-def build_crops(img, face, content=None):
+def build_crops(img, face, content=None, scope="bust"):
     W, H = img.size
     fx, fy, fw, fh = face["box"]
     eye_y = face["eye_y"]
     face_area = float(fw * fh)
-    eye_target = PROFILE_EYE_TARGET if face.get("profile") else EYE_TARGET
+    eye_target = (PROFILE_EYE_TARGET if face.get("profile")
+                  else SCOPE_EYE_TARGET.get(scope, EYE_TARGET))
+    targets = SCOPE_RATIOS.get(scope, TARGET_RATIOS)
+    below_chin = SCOPE_BELOW_CHIN.get(scope)
     content_top = None
     if (content and content.get("applied") and content.get("reliable")
             and not content.get("empty")):
@@ -1044,7 +1063,7 @@ def build_crops(img, face, content=None):
         return min(top, content_top - HEAD_SAFE_MARGIN * s)
 
     out = []
-    for target in TARGET_RATIOS:
+    for target in targets:
         s = math.sqrt(face_area / (0.785 * target))
         s = min(s, min(W, H))
         ideal_left = fx + fw / 2.0 - s / 2.0
@@ -1054,6 +1073,9 @@ def build_crops(img, face, content=None):
         top = min(top, fy - MARGIN_BUILD * s)
         # 下巴留白
         top = max(top, (fy + fh) - s + CHIN_BUILD * s)
+        # 收紧取景：画布下沿最多到下巴下方 below_chin*s（锁骨上方一点），胸部不入镜
+        if below_chin is not None:
+            top = min(top, (fy + fh) - (1.0 - below_chin) * s)
         top = keep_head(top, s)
         left = clamp(left, 0, W - s)
         top = clamp(top, 0, H - s)
@@ -1707,6 +1729,9 @@ _FLAT_FINAL = re.compile(
     r"^(?P<prefix>.+)-avatar-(?P<n>\d+)\.(?:png|jpe?g|webp)$", re.I)
 _FLAT_EXPORT = re.compile(
     r"^.+?-avatar-\d+-(?:2k|4k|q\d+)\.(?:png|jpe?g)$", re.I)
+# 两段式第一段（身份步）的证据图：generate.py 写出，不是待评分原图
+_FLAT_STAGE1 = re.compile(
+    r"^.+?-avatar-\d+-s\d+\.(?:png|jpe?g|webp)$", re.I)
 _FLAT_ANY_NUMBER = re.compile(
     r"^.+?-avatar-(\d+)(?:-[a-z0-9]+)?\.[A-Za-z0-9]+$", re.I)
 
@@ -1737,6 +1762,8 @@ def flat_sources(order_dir):
             continue          # 参考图是生成入参，不是待评分原图
         if _FLAT_EXPORT.match(name) or _FLAT_FINAL.match(name):
             continue
+        if _FLAT_STAGE1.match(name):
+            continue          # 两段式身份步证据图，最终原图是同编号的 -src
         names.append(name)
     return names
 
@@ -2368,14 +2395,28 @@ def normalize_brief(brief, card, budget):
     if mode == "reference" and not (gen.get("reference_images") or []):
         errors.append("参考图模式必须先归档参考图并在 "
                       "generation.reference_images 记账（见 confirm_order.py --reference）")
+    stages = gen.get("stages") or None
+    if stages is not None:
+        names = [s.get("stage") for s in stages if isinstance(s, dict)]
+        if names not in (["single"], ["identity"], ["identity", "style"]):
+            errors.append("generation.stages 阶段组合 %s 不受支持"
+                          "（允许 single / identity / identity→style）" % names)
+        elif not all(s.get("backend") for s in stages):
+            errors.append("generation.stages 每段都必须写 backend")
     out["generation"] = {
-        "backend": gen.get("backend") or "agnes-aigc-img2img",
+        "backend": ((stages[0].get("backend") if stages else None)
+                    or gen.get("backend") or "agnes-aigc-img2img"),
         "mode": mode,
         "reference_images": gen.get("reference_images") or [],
         "strength": None if gen.get("strength") is None else gen.get("strength"),
         "fallback": gen.get("fallback") or "fail",
         "text2img_consent": gen.get("text2img_consent") is True,
     }
+    if stages:
+        out["generation"]["stages"] = stages
+    if gen.get("seed") is not None:
+        out["generation"]["seed"] = gen.get("seed")
+    out["generation"]["egress_consent"] = gen.get("egress_consent") is True
 
     out["size"] = str(out.get("size") or "1024")
     out["formats"] = out.get("formats") or [out["size"]]
@@ -2543,8 +2584,59 @@ def reference_similarity(img, refs):
 
 
 def default_backends_path():
+    """优先读 2.0 注册表 backends.v2.json（后端适配器用），缺失时退回 1.0 backends.json。"""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    v2 = os.path.join(root, "references", "backends.v2.json")
+    if os.path.isfile(v2):
+        return v2
     return os.path.join(root, "references", "backends.json")
+
+
+GENERATION_LOG = "generation.json"
+
+
+def load_generation_log(order_dir, order_id=None):
+    """读 generate.py 写出的 generation.json：返回 (当前订单的 runs, {原图文件名: 生成记录})。
+
+    没有日志（宿主手工生成的旧流程）时返回 ([], {})，manifest 仍按 agent-side 记录。
+    """
+    path = os.path.join(order_dir, GENERATION_LOG)
+    if not os.path.isfile(path):
+        return [], {}
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            doc = json.load(fh) or {}
+    except (OSError, ValueError):
+        return [], {}
+    runs = [r for r in doc.get("runs") or []
+            if not order_id or r.get("order_id") in (None, order_id)]
+    by_file = {}
+    for run in runs:
+        results = run.get("results") or []
+        two_stage = len(run.get("stages") or []) == 2
+        stage1 = {}
+        for res in results:
+            if res.get("stage") == "identity":
+                for img in res.get("images") or []:
+                    stage1[img.get("index")] = img
+        for res in results:
+            if two_stage and res.get("stage") == "identity":
+                continue
+            for img in res.get("images") or []:
+                name = os.path.basename(img.get("path") or "")
+                s1 = stage1.get(img.get("index"))
+                by_file[name] = {
+                    "adapter": res.get("adapter_id"), "stage": res.get("stage"),
+                    "seed": img.get("seed"), "sha256": img.get("sha256"),
+                    "reproducible": res.get("reproducible"),
+                    "reproducible_reason": res.get("reproducible_reason"),
+                    "model": res.get("model"), "license": res.get("license"),
+                    "round": run.get("round"), "run_id": run.get("run_id"),
+                    "stage1": ({"file": os.path.basename(s1.get("path") or ""),
+                                "seed": s1.get("seed"), "sha256": s1.get("sha256")}
+                               if s1 and two_stage else None),
+                }
+    return runs, by_file
 
 
 def default_angles_path():
@@ -2560,17 +2652,39 @@ def _sha256_file(path):
     return h.hexdigest()
 
 
+def _backend_view(spec):
+    """2.0 注册表条目 → 1.0 字段视图：补出 reference_images 能力块，旧条目原样返回。"""
+    if not spec or "capabilities" not in spec or spec.get("reference_images"):
+        return spec
+    c = spec.get("capabilities") or {}
+    mx = int(c.get("reference_max") or 0)
+    host_params = (spec.get("host") or {}).get("params") or {}
+    view = dict(spec)
+    view["reference_images"] = {
+        "supported": mx > 0,
+        "max": mx,
+        "roles": list(c.get("reference_roles") or []),
+        "param": host_params.get("reference") or "reference_images",
+        # 2.0 的重绘强度属于分段（stages[].denoise），brief.generation.strength 仍须为 null
+        "strength_range": None,
+    }
+    return view
+
+
 def check_generation(gen, registry, refs=None, order_dir=None):
     """调用前能力检测：核对后端能力，并核对本单是否真的把参考图传了进去。
 
     `identity_unverified=false` 只在「后端声明支持参考图 + 本单参考图可读 +
     sha256 与 brief 记录一致」时成立；否则一律 true，绝不假绿。
     text2img 只有在 `generation.text2img_consent=true` 时才放行。
+    分段（generation.stages）时：参考图能力看第一段（身份步），每段后端都必须已登记、
+    available，backend_verified 取各段 verified 的「与」。
     """
     if not gen:
         return None
-    backends = {b.get("id"): b for b in (registry or {}).get("backends", [])}
-    bid = gen.get("backend")
+    backends = {b.get("id"): _backend_view(b) for b in (registry or {}).get("backends", [])}
+    stages = [s for s in (gen.get("stages") or []) if isinstance(s, dict)]
+    bid = (stages[0].get("backend") if stages else None) or gen.get("backend")
     backend = backends.get(bid)
     refs = refs or []
     declared = _active_entries(gen.get("reference_images"))
@@ -2586,6 +2700,13 @@ def check_generation(gen, registry, refs=None, order_dir=None):
                       % bid)
     elif backend.get("available") is False:
         errors.append("后端 %r 未接入（available=false），不得当作可用" % bid)
+    for s in stages[1:]:
+        sb = backends.get(s.get("backend"))
+        if sb is None:
+            errors.append("分段 %s 的后端 %r 未登记" % (s.get("stage"), s.get("backend")))
+        elif sb.get("available") is False:
+            errors.append("分段 %s 的后端 %r 未接入（available=false）"
+                          % (s.get("stage"), s.get("backend")))
 
     if mode not in ("reference", "text2img"):
         errors.append("generation.mode 只能是 reference / text2img，收到 %r" % mode)
@@ -2640,10 +2761,16 @@ def check_generation(gen, registry, refs=None, order_dir=None):
         identity_unverified = True
     else:
         identity_unverified = not ref_ok
+    verified = bool((backend or {}).get("verified"))
+    for s in stages[1:]:
+        verified = verified and bool((backends.get(s.get("backend")) or {}).get("verified"))
     return {
         "backend": bid,
         "backend_name": (backend or {}).get("display_name"),
-        "backend_verified": bool((backend or {}).get("verified")),
+        "backend_verified": verified,
+        "stages": [{"stage": s.get("stage"), "backend": s.get("backend"),
+                    "verified": bool((backends.get(s.get("backend")) or {}).get("verified"))}
+                   for s in stages] or None,
         "mode": mode,
         "reference_images": [{"path": r.get("path"), "role": r.get("role"),
                               "sha256": r.get("sha256")} for r in refs]
@@ -2905,6 +3032,8 @@ def main():
                     help="超预算仍继续（必须先取得用户确认）")
     ap.add_argument("--face-mode", choices=FACE_MODES, default=None,
                     help="faced / faceless；缺省读 brief 或角色卡（默认 faced）")
+    ap.add_argument("--scope", choices=["bust", "head_shoulders"], default="bust",
+                    help="取景范围：bust=胸像；head_shoulders=头部+肩部，下沿到锁骨上方一点")
     ap.add_argument("--backends", default=None,
                     help="生成后端能力注册表 JSON（默认 references/backends.json）")
     ap.add_argument("--references", default=None,
@@ -3101,6 +3230,12 @@ def main():
             print("WARNING: 本单 identity_unverified=true —— 参考图未真正参与生成，"
                   "只在报告里标注，不能当作身份一致。")
 
+    # generate.py 的生成日志：有则把后端 / seed / 可复现判定写进 manifest，没有则保持 agent-side
+    gen_runs, gen_by_file = load_generation_log(
+        out_dir if layout == "flat" else (os.path.dirname(os.path.abspath(brief_path))
+                                          if brief_path else out_dir),
+        current_order if layout == "flat" else None)
+
     results = []
     for item in work:
         name = item["name"]
@@ -3160,7 +3295,7 @@ def main():
         best_any = None
         candidates = (build_crops_faceless(img, face, image_content)
                       if face_mode == "faceless"
-                      else build_crops(img, face, image_content))
+                      else build_crops(img, face, image_content, args.scope))
         for cand in candidates:
             sc = (score_crop_faceless(img, cand, face, image_content)
                   if face_mode == "faceless"
@@ -3217,7 +3352,8 @@ def main():
         tid, tedge, tcontrast = thumb_readability(master)
         content_codes = ("composition_bad:whitespace",
                          "composition_bad:subject_share",
-                         "composition_bad:head_cut")
+                         "composition_bad:head_cut",
+                         "composition_bad:head_room")
         # 成品内容闸门是最终口径：先剔除候选阶段的同类原因，再按成品重记
         reasons = [r for r in best["reasons"] if r not in content_codes]
         reasons.extend(final_content_gate["reasons"])
@@ -3323,6 +3459,7 @@ def main():
             "angle_metrics": angle_metrics,
             "reference_similarity": ref_sim,
             "generation": gen_check,
+            "generator": gen_by_file.get(item.get("name")),
             "gate_scope": "final_crop",
             "final_gate": {
                 "metric_set": "content_bbox",
@@ -3397,8 +3534,15 @@ def main():
             "tool": "anime-avatar/avatar_pipeline.py",
             "version": VERSION,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "backend": "agent-side",
-            "reproducible": False,
+            "backend": (", ".join(sorted({res.get("adapter_id")
+                                          for run in gen_runs
+                                          for res in run.get("results") or []
+                                          if res.get("adapter_id")}))
+                        or "agent-side"),
+            "reproducible": bool(gen_runs) and all(
+                res.get("reproducible") is True
+                for run in gen_runs for res in run.get("results") or []),
+            "generation_log": GENERATION_LOG if gen_runs else None,
             "native_limit": NATIVE_LIMIT,
             "layout": layout,
             "order_id": current_order,
@@ -3476,6 +3620,10 @@ def main():
         },
         "items": [],
     }
+    for r in ranked:
+        # 所有分支（含定位失败、打不开等简化记录）都带上生成来源
+        if r.get("generator") is None:
+            r["generator"] = gen_by_file.get(os.path.basename(r.get("file") or ""))
     new_items = [{k: v for k, v in r.items() if k not in ("image", "ahash")}
                  for r in ranked]
     if layout == "flat" and prev_manifest_doc:

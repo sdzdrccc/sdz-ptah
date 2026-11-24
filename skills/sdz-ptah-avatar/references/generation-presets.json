@@ -1,0 +1,141 @@
+{
+  "schema": "generation-presets/1.0",
+  "version": "1.0.0",
+  "note": "方案菜单只存用户可理解的选择与推荐参数；能力、许可、外发、verified 一律运行时读 backends.v2.json。",
+  "presets": [
+    {
+      "id": "host-agnes-single",
+      "label": "维护者路线 · 单图身份",
+      "scene": "有 1 张参考图，先验证身份能否锁住",
+      "stages": [
+        {"stage": "single", "backend": "agnes-aigc-img2img"}
+      ],
+      "mode": "reference",
+      "requires": {
+        "reference_min": 1,
+        "reference_max": 1,
+        "reference_roles": ["identity"],
+        "egress": true,
+        "host_tool": true
+      },
+      "cost": {"calls_per_image": 1, "credits_per_image": null},
+      "recommended_for": ["快速验证", "身份锁定"],
+      "notes": [
+        "参考图会发往远端服务，必须在确认页取得外发同意。",
+        "宿主工具需要在 WorkBuddy 内执行；独立网页会先产出调用单，再按提示续跑。"
+      ]
+    },
+    {
+      "id": "local-open-two-stage",
+      "label": "本地开放权重 · 身份+画风两段",
+      "scene": "有本机 ComfyUI，参考图不外发，想要可复现流程",
+      "stages": [
+        {"stage": "identity", "backend": "comfyui-qwen-edit-2511"},
+        {"stage": "style", "backend": "comfyui-animagine-i2i", "params": {"denoise": 0.35}}
+      ],
+      "mode": "reference",
+      "requires": {
+        "reference_min": 1,
+        "reference_max": 3,
+        "reference_roles": ["identity", "style", "outfit"],
+        "egress": false,
+        "comfyui": true
+      },
+      "cost": {"calls_per_image": 2, "credits_per_image": 0},
+      "recommended_for": ["身份锁定", "画风统一", "可复现", "不外发"],
+      "notes": [
+        "comfyui-qwen-edit-2511 当前 available=false，需要先导出 API 工作流并填 bindings。",
+        "两段式每张图两次调用，第二步把第一步输出作为 init_image。"
+      ]
+    },
+    {
+      "id": "modelscope-qwen-edit",
+      "label": "魔搭 Qwen Edit · 身份步",
+      "scene": "无本地显卡，用在线 Qwen 做身份步",
+      "stages": [
+        {"stage": "single", "backend": "modelscope-qwen-edit", "params": {"steps": 30}}
+      ],
+      "mode": "reference",
+      "requires": {
+        "reference_min": 1,
+        "reference_max": 3,
+        "reference_roles": ["identity", "style", "outfit"],
+        "egress": true,
+        "secrets": ["MODELSCOPE_TOKEN"]
+      },
+      "cost": {"calls_per_image": 1, "credits_per_image": null},
+      "recommended_for": ["在线身份步", "无显卡路线", "A/B 对照"],
+      "notes": [
+        "魔搭免费推理服务非商用，参考图会发往远端。",
+        "后端 verified=false，真实 token 出图尚未完成验证。"
+      ]
+    },
+    {
+      "id": "modelscope-qwen-2-1",
+      "label": "魔搭 Qwen 2.1 · 效果优先",
+      "scene": "网页端实测效果最好，想用统一生图/编辑模型",
+      "stages": [
+        {"stage": "single", "backend": "modelscope-qwen-image-2.1"}
+      ],
+      "mode": "reference",
+      "requires": {
+        "reference_min": 1,
+        "reference_max": 10,
+        "reference_roles": ["identity", "style", "outfit"],
+        "egress": true,
+        "secrets": ["MODELSCOPE_TOKEN"]
+      },
+      "cost": {"calls_per_image": 1, "credits_per_image": 1},
+      "recommended_for": ["效果优先", "身份与画风同时锁", "多参考图"],
+      "notes": [
+        "Qwen Research License + 魔搭免费推理条款，非商用；1 魔粒/次。",
+        "后端 verified=false，probe 对生图模型可能给出“不在公开列表”的已知误报。"
+      ]
+    },
+    {
+      "id": "modelscope-minimax-h3",
+      "label": "魔搭 MiniMax H3 · 高分辨率对照",
+      "scene": "想和 Qwen 做在线对照，参考图较多",
+      "stages": [
+        {"stage": "single", "backend": "modelscope-minimax-h3-image"}
+      ],
+      "mode": "reference",
+      "requires": {
+        "reference_min": 1,
+        "reference_max": 16,
+        "reference_roles": ["identity", "style", "outfit"],
+        "egress": true,
+        "secrets": ["MODELSCOPE_TOKEN"]
+      },
+      "cost": {"calls_per_image": 1, "credits_per_image": 2},
+      "recommended_for": ["在线 A/B 对照", "多参考图", "线条清晰度对照"],
+      "notes": [
+        "非商用；2 魔粒/次。",
+        "API 不接受 negative_prompt / steps / guidance，适配器不会发送这些字段。",
+        "后端 verified=false，真实 token 出图尚未完成验证。"
+      ]
+    },
+    {
+      "id": "host-trae-text2img",
+      "label": "无参考图 · 文生图对照",
+      "scene": "没有参考图，只做风格/构图对照",
+      "stages": [
+        {"stage": "single", "backend": "trae-generateimage"}
+      ],
+      "mode": "text2img",
+      "requires": {
+        "reference_min": 0,
+        "reference_max": 0,
+        "egress": true,
+        "text2img": true,
+        "host_tool": true
+      },
+      "cost": {"calls_per_image": 1, "credits_per_image": null},
+      "recommended_for": ["无参考图", "文生图对照", "快速草图"],
+      "notes": [
+        "必须显式同意关闭参考图；结果会记 identity_unverified=true。",
+        "宿主工具需要在 WorkBuddy 内执行；独立网页会先产出调用单，再按提示续跑。"
+      ]
+    }
+  ]
+}
