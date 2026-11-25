@@ -69,11 +69,17 @@ def _env_missing(names):
     return [n for n in (names or []) if not os.environ.get(n)]
 
 
-def resolve_presets(registry_path=None, presets_path=None):
-    """返回带注册表派生字段的方案列表。只读，不发请求。"""
+def resolve_presets(registry_path=None, presets_path=None, items=None):
+    """返回带注册表派生字段的方案列表。只读，不发请求。
+
+    items：直接给出方案数组（如网页按单个模型临时构造的方案），不读 presets 文件。
+    """
     reg = registry.load(registry_path)
     specs = {b.get("id"): b for b in reg.get("backends") or []}
-    doc, presets = load_presets(presets_path)
+    if items is not None:
+        doc, presets = {"schema": "generation-presets/1.0", "version": "registry"}, list(items)
+    else:
+        doc, presets = load_presets(presets_path)
     result = []
     for p in presets:
         reasons, warnings = [], []

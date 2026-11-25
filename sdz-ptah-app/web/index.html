@@ -3,128 +3,239 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>sdz-ptah 本地控制台</title>
+  <title>sdz-ptah 出图</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header class="topbar">
-  <div>
-    <h1>sdz-ptah 本地控制台</h1>
-    <p id="metaLine">正在读取项目信息…</p>
-  </div>
-  <details class="help">
-    <summary>使用说明</summary>
-    <ol>
-      <li>先新建或选择一个订单。</li>
-      <li>参考图模式需先上传参考图；无参考图方案需勾选文生图同意。</li>
-      <li>选一张方案卡，阅读外发、许可、未实测提示。</li>
-      <li>点“确认方案”，再点“只校验”或“正式生成”。</li>
-      <li>任何换方案都会写新的 brief 参数，需要重新确认。</li>
-    </ol>
-  </details>
+  <h1>sdz-ptah 出图</h1>
+  <span id="metaLine" class="meta">正在读取项目信息…</span>
+  <span id="tokenPill" class="pill">token 检测中</span>
+  <span class="pill warn">免费推理 · 非商用</span>
 </header>
 
 <main class="layout">
-  <section class="panel left">
-    <h2>订单</h2>
-    <form id="orderForm" class="form">
-      <label>角色 ID（英文/数字，可新建）
-        <input id="characterInput" list="characterOptions" value="satoshi" placeholder="例如 my_hero">
-        <datalist id="characterOptions"></datalist>
-      </label>
-      <label>风格 ID（英文/数字，可新建）
-        <input id="styleInput" list="styleOptions" value="tv-anime-cel">
-        <datalist id="styleOptions"></datalist>
-      </label>
-      <details class="advanced">
-        <summary>角色/风格描述（可选）</summary>
-        <label>角色名称
-          <input id="characterNameInput" placeholder="例如 小智">
-        </label>
-        <label>角色描述
-          <textarea id="characterDescInput" rows="2" placeholder="外貌、服装、识别点…"></textarea>
-        </label>
-        <label>角色描述（英文，可选）
-          <textarea id="characterDescEnInput" rows="2" placeholder="用于英文提示词段"></textarea>
-        </label>
-        <label>风格描述
-          <textarea id="styleDescInput" rows="2" placeholder="例如 90 年代 TV 动画赛璐璐…"></textarea>
-        </label>
-        <p class="hint">留空描述时沿用已有档案；填了描述会在应用目录生成自定义档案，不改项目原件。</p>
-      </details>
-      <label>性别
-        <select id="genderSelect">
-          <option value="unspecified">未指定</option>
-          <option value="male">男</option>
-          <option value="female">女</option>
-        </select>
-      </label>
-      <label>朝向
-        <select id="angleSelect">
-          <option value="">按规则默认</option>
-          <option value="front">正脸</option>
-          <option value="profile_left">朝左</option>
-          <option value="profile_right">朝右</option>
-        </select>
-      </label>
-      <label>张数
-        <input id="countInput" type="number" min="1" max="20" value="1">
-      </label>
-      <label>预算
-        <input id="budgetInput" type="number" min="1" max="200" value="10">
-      </label>
-      <button type="submit">新建订单</button>
-    </form>
+  <!-- 左：历史 -->
+  <aside id="historyCard" class="col hist">
+    <div class="col-head">
+      <span class="sec-title">历史订单</span>
+      <button id="historyButton" class="link" type="button">回到顶部</button>
+    </div>
+    <button id="newButton" class="newbtn" type="button">＋ 新建（清空表单）</button>
     <div id="orderList" class="order-list"></div>
+  </aside>
+
+  <!-- 中：方案、模型、提示词、参数、参考图 -->
+  <section class="col work">
+    <form id="genForm" autocomplete="off">
+      <div class="block">
+        <div class="block-title">方案 <span class="en">Scheme</span></div>
+        <div id="schemeList" class="schemes"></div>
+        <div id="schemeDetail" class="scheme-detail" hidden></div>
+      </div>
+
+      <div class="block">
+        <div class="block-title">模型管理 <span class="en">Models</span></div>
+        <div class="mgr">
+          <div class="mgr-cover">
+            <img id="ckptCover" alt="" hidden>
+            <div id="ckptCoverFallback" class="cover-fallback">无模型</div>
+          </div>
+          <div class="mgr-main">
+            <button id="pickModelBtn" class="pick" type="button">选择模型</button>
+            <span class="small">可选择 Checkpoint、VAE、LoRA；方案与模型在弹窗里选</span>
+            <div class="mgr-grid">
+              <div class="slot">
+                <span class="lbl">Checkpoint</span>
+                <div id="ckptSlot" class="slot-val">未选择</div>
+              </div>
+              <div class="slot">
+                <span class="lbl">VAE</span>
+                <div id="vaeSlot" class="slot-val">使用模型自带 VAE</div>
+              </div>
+            </div>
+            <div class="lora-block">
+              <span class="lbl">LoRA</span>
+              <div id="loraList" class="lora-list"></div>
+              <button id="addLoraBtn" class="lora-add" type="button">＋ 添加 LoRA</button>
+            </div>
+            <ul id="modelReasons" class="reasons" hidden></ul>
+            <p id="modelCaps" class="small"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="prompts">
+          <div>
+            <div class="field-head">
+              <label for="positiveInput">正向提示词 <span class="en">Prompt</span></label>
+              <span id="positiveCount" class="counter">0 / 4000</span>
+            </div>
+            <textarea id="positiveInput" rows="7" maxlength="4000" placeholder="画面、角色特征、画风、构图…"></textarea>
+          </div>
+          <div>
+            <div class="field-head">
+              <label for="negativeInput">负向提示词 <span class="en">Negative</span></label>
+              <span id="negativeCount" class="counter">0 / 4000</span>
+            </div>
+            <textarea id="negativeInput" rows="7" maxlength="4000" placeholder="不想出现的内容（可留空）"></textarea>
+            <span id="negativeNote" class="small" hidden>当前模型不支持负向提示词，填写也不会发送</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="params">
+          <div class="pcol">
+            <label class="f" for="nameInput"><span class="lbl">保存名称 <span class="en">文件夹名</span></span>
+              <input id="nameInput" value="avatar" maxlength="64" placeholder="例如 goku">
+            </label>
+
+            <div class="f">
+              <span class="lbl">随机种子 <span class="en">Seed</span></span>
+              <div class="inline">
+                <input id="seedInput" type="number" value="-1" min="-1" step="1">
+                <button id="seedDice" class="icon" type="button" title="随机一个种子">⟳</button>
+                <button id="seedReset" class="icon" type="button" title="改回 -1">-1</button>
+              </div>
+              <span id="seedNote" class="small"></span>
+            </div>
+
+            <div id="guidanceRow" class="f">
+              <span class="lbl">提示词引导系数 <span class="en">CFG</span>
+                <input id="guidanceInput" class="num" type="number" min="0" max="20" step="0.5"></span>
+              <input id="guidanceRange" type="range" min="0" max="20" step="0.5">
+            </div>
+
+            <div id="stepsRow" class="f">
+              <span class="lbl">采样步数 <span class="en">Steps</span>
+                <input id="stepsInput" class="num" type="number" min="1" max="100" step="1"></span>
+              <input id="stepsRange" type="range" min="1" max="100" step="1">
+            </div>
+            <p id="paramNote" class="small" hidden></p>
+
+            <div class="f">
+              <span class="lbl">生成数量 <span class="en">Number</span></span>
+              <div id="countSeg" class="seg wide" role="radiogroup" aria-label="数量"></div>
+            </div>
+          </div>
+
+          <div class="pcol">
+            <div class="f">
+              <span class="lbl">尺寸 <span class="en">Size</span></span>
+              <div class="seg wide tabs" role="tablist">
+                <button id="sizeTabPreset" type="button" class="active">预置尺寸</button>
+                <button id="sizeTabCustom" type="button">自定义尺寸</button>
+              </div>
+            </div>
+            <div id="sizePreset">
+              <div class="ratio-wrap">
+                <div class="ratio-box"><div id="ratioShape" class="ratio-shape"><span id="ratioText">1:1</span></div></div>
+                <div class="ratio-side">
+                  <div id="sizeText" class="size-text">1024×1024</div>
+                  <div id="ratioSeg" class="seg" role="radiogroup" aria-label="画幅"></div>
+                  <span class="lbl sub">长边</span>
+                  <div id="edgeSeg" class="seg" role="radiogroup" aria-label="长边"></div>
+                </div>
+              </div>
+            </div>
+            <div id="sizeCustom" hidden>
+              <div class="inline">
+                <input id="customW" type="number" min="512" max="2048" step="8" value="1024" aria-label="宽">
+                <span>×</span>
+                <input id="customH" type="number" min="512" max="2048" step="8" value="1024" aria-label="高">
+              </div>
+              <span class="small">每边 512–2048，8 的倍数</span>
+            </div>
+            <p id="sizeNote" class="small"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-title">
+          图片编辑 / 图生图
+          <label class="switch" title="关闭后为文生图">
+            <input id="useRefToggle" type="checkbox" checked>
+            <span class="track"><span class="knob"></span></span>
+            <span id="useRefText">启用</span>
+          </label>
+        </div>
+        <div id="refArea" class="ref-area">
+          <label id="refDrop" class="ref">
+            <input id="referenceFile" type="file" accept=".png,.jpg,.jpeg,.webp">
+            <img id="refPreview" alt="参考图预览" hidden>
+            <span id="refInfo">点击选择参考图<br><small>超过 1 MB 或长边超过 1536 会自动压缩</small></span>
+          </label>
+          <div class="ref-side">
+            <p id="refLimit" class="small"></p>
+            <label id="egressRow" class="check">
+              <input id="egressConsent" type="checkbox"> 同意把参考图发往远端服务
+            </label>
+          </div>
+        </div>
+        <p id="refOff" class="small" hidden></p>
+      </div>
+
+      <p id="formNotice" class="notice" hidden></p>
+      <div class="bar">
+        <span class="small grow">“只校验”不调用远端、不扣次数。生成图带有平台写入的 AIGC 隐式标识，请勿删除。</span>
+        <span id="costLine" class="small"></span>
+        <button id="dryRunButton" class="btn" type="button">只校验</button>
+        <button id="generateButton" class="btn go" type="submit"><span id="goLabel">开始生图</span></button>
+      </div>
+    </form>
   </section>
 
-  <section class="panel center">
-    <div id="orderHeader" class="order-header">未选择订单</div>
-
-    <h2>生成方案</h2>
-    <div id="presetList" class="preset-list"></div>
-
-    <div class="card">
-      <h3>参考图与确认</h3>
-      <div id="referenceList" class="reference-list"></div>
-      <label class="upload">
-        上传参考图
-        <input id="referenceFile" type="file" accept=".png,.jpg,.jpeg,.webp">
-      </label>
-      <div class="checks">
-        <label><input id="egressConsent" type="checkbox"> 我同意把参考图发往远端服务</label>
-        <label><input id="text2imgConsent" type="checkbox"> 无参考图方案：同意关闭参考图</label>
-        <label><input id="commercialIntent" type="checkbox"> 这是可商用订单（会拦截非商用方案）</label>
-      </div>
-      <label>Seed（可空）
-        <input id="seedInput" type="number" placeholder="例如 100">
-      </label>
-      <button id="confirmButton" class="primary" disabled>确认方案</button>
-      <p id="confirmHint" class="hint">先选择一张可用方案。</p>
+  <!-- 右：结果 -->
+  <aside class="col result">
+    <div id="resultHead" class="rhead"></div>
+    <div id="progress" class="progress" hidden></div>
+    <div class="pending-actions">
+      <button id="resumeButton" class="btn" type="button" hidden>续跑未完成</button>
+      <button id="discardButton" class="btn" type="button" hidden>放弃未完成</button>
     </div>
-
-    <div class="card">
-      <h3>生成</h3>
-      <div class="actions">
-        <button id="dryRunButton" disabled>只校验 dry-run</button>
-        <button id="generateButton" class="primary" disabled>正式生成</button>
-        <button id="resumeButton" disabled>续跑未完成</button>
-        <button id="discardButton" disabled>放弃未完成</button>
-      </div>
-      <p class="hint">独立网页不会替 WorkBuddy 执行宿主工具；遇到调用单时按脚本提示续跑。</p>
-    </div>
-  </section>
-
-  <aside class="panel right">
-    <h2>状态与结果</h2>
-    <div id="statusBox" class="status-box"></div>
-    <h3>运行输出</h3>
-    <pre id="console" class="console">尚未运行。</pre>
-    <h3>图片</h3>
     <div id="gallery" class="gallery"></div>
+    <dl id="facts" class="facts"></dl>
+    <details class="log">
+      <summary>运行记录</summary>
+      <pre id="console" class="console">尚未运行。</pre>
+    </details>
   </aside>
 </main>
 
+<div id="pickDlg" class="dlg" hidden>
+  <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <div class="dlg-head">
+      <span id="dlgTitle" class="sec-title">选择模型</span>
+      <button id="dlgClose" class="icon" type="button" aria-label="关闭">✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-left">
+        <div class="dlg-tabs" role="tablist">
+          <button type="button" class="tab active" data-kind="checkpoint">Checkpoint</button>
+          <button type="button" class="tab" data-kind="vae">VAE</button>
+          <button type="button" class="tab" data-kind="lora">LoRA</button>
+        </div>
+        <div class="dlg-filter">
+          <select id="dlgScheme" aria-label="方案"></select>
+          <div id="dlgSchemeNote" class="scheme-note" hidden></div>
+          <input id="dlgSearch" type="search" placeholder="搜索模型名…">
+        </div>
+        <div id="dlgGrid" class="dlg-grid"></div>
+      </div>
+      <aside class="dlg-right">
+        <h3>已选</h3>
+        <div id="dlgSelected"></div>
+      </aside>
+    </div>
+    <div class="dlg-foot">
+      <button id="dlgCancel" class="btn" type="button">取消</button>
+      <button id="dlgDone" class="btn go" type="button">完成</button>
+    </div>
+  </div>
+</div>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -51,6 +51,7 @@ for _p in (SKILL_ROOT, HERE):
         sys.path.insert(0, _p)
 
 import rounds as rl  # noqa: E402
+from path_names import safe_slug  # noqa: E402
 from backends import registry, runner  # noqa: E402
 from backends.base import (EXIT_BACKEND, EXIT_BUDGET, EXIT_CAPABILITY,  # noqa: E402
                            EXIT_NEEDS_AGENT, AdapterError, CapabilityError,
@@ -92,7 +93,7 @@ def detect_prefix(order_dir, brief):
     """与 confirm_order.py 相同：character_id > 目录里已有前缀 > avatar。"""
     prefix = brief.get("character_id")
     if prefix:
-        return re.sub(r"[^0-9A-Za-z_-]+", "-", str(prefix)).strip("-") or "avatar"
+        return safe_slug(prefix, fallback="avatar")
     for name in sorted(os.listdir(order_dir)):
         m = re.match(r"(.+)-avatar-\d+(?:-src)?\.(?:png|jpe?g|webp)$", name, re.I)
         if m:
@@ -182,6 +183,28 @@ def prompt_digest(prompt_zh, prompt_en):
     return hashlib.sha256(("%s\n---\n%s" % (prompt_zh, prompt_en)).encode("utf-8")).hexdigest()
 
 
+def parse_render_size(value):
+    """brief.render_size（'1024x1536'）→ (宽, 高)；缺省 1024x1024。
+
+    每边 512–2048 且为 8 的倍数，否则 ValueError（退出码 2）。
+    1K/2K/4K 仍是交付规格，由 avatar_pipeline.py 裁切 / 放大导出，与这里无关。
+    """
+    if value in (None, ""):
+        return 1024, 1024
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        raw = value
+    else:
+        m = re.match(r"^\s*(\d{3,4})\s*[xX×*]\s*(\d{3,4})\s*$", str(value))
+        if not m:
+            raise ValueError("render_size 格式应为 宽x高，例如 1024x1536，收到 %r" % (value,))
+        raw = m.groups()
+    w, h = int(raw[0]), int(raw[1])
+    for v in (w, h):
+        if v < 512 or v > 2048 or v % 8:
+            raise ValueError("render_size 每边需在 512–2048 之间且为 8 的倍数，收到 %dx%d" % (w, h))
+    return w, h
+
+
 def build_plan(order_dir, brief, args, doc):
     gen = brief.get("generation") or {}
     mode = gen.get("mode") or "reference"
@@ -208,8 +231,9 @@ def build_plan(order_dir, brief, args, doc):
     elif gen.get("text2img_consent") is not True:
         raise CapabilityError("mode=text2img 需要用户显式同意（generation.text2img_consent=true）")
 
-    # 生成固定 1024 方图；1K/2K/4K 是交付规格，由 avatar_pipeline.py 裁切 / 放大导出
-    size = 1024
+    # 默认 1024 方图；brief.render_size 可指定其他尺寸。1K/2K/4K 是交付规格，由 avatar_pipeline.py 裁切 / 放大导出
+    width, height = parse_render_size(brief.get("render_size"))
+    size = width
     count = int(args.count or brief.get("count") or 2)
     start_index = next_index(order_dir)
     if gen.get("seed") is not None:
@@ -229,6 +253,8 @@ def build_plan(order_dir, brief, args, doc):
         "start_index": start_index,
         "count": count,
         "size": size,
+        "width": width,
+        "height": height,
         "seed": seed,
         "seed_source": "brief" if gen.get("seed") is not None else "random",
         "mode": mode,
@@ -262,7 +288,8 @@ def to_request(plan):
         prompt_zh=plan["prompt_zh"], prompt_en=plan["prompt_en"], negative=plan["negative"],
         references=[ReferenceImage(r["path"], r["role"], r.get("sha256"))
                     for r in plan["references"]],
-        seed=plan["seed"], width=plan["size"], height=plan["size"], count=plan["count"],
+        seed=plan["seed"], width=plan.get("width", plan["size"]), height=plan.get("height", plan["size"]),
+        count=plan["count"],
         egress_consent=plan["egress_consent"])
 
 
@@ -458,6 +485,8 @@ def main(argv=None):
     if args.dry_run or errors:
         echo({"plan": {k: plan[k] for k in ("order_id", "round", "prefix", "start_index",
                                             "count", "size", "seed", "stages")},
+              "render_size": "%sx%s" % (plan.get("width", plan["size"]),
+                                        plan.get("height", plan["size"])),
               "calls_needed": need, "budget_remaining": remaining,
               "errors": errors, "warnings": warnings})
         if errors:

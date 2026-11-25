@@ -296,7 +296,9 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 
 **编译器**：以上拼接由 `scripts/compile_prompt.py` 执行，输入风格档案 + 角色卡 + 角度 +
 后端能力，输出 `prompt_zh` / `prompt_en` / `negative` 与版本字段；`--out` 写出的 JSON
-可直接交给 `generate.py --prompt-file`。手写提示词只作为调试用途，正式订单以编译产物为准。
+可直接交给 `generate.py --prompt-file`。
+**2026-11-26 起**：提示词由 agent 编写、颜色取自参考图实测，按 `references/prompt-writing-spec.md`（`prompt-spec-v1`）执行，
+写完用 `scripts/check_prompt.py` 自查；网页与脚本都不改写提示词。编译器保留为可选工具（有角色卡时可用来起草）。
 
 `<image 1>` 这类尖括号指代只在真支持参考图入参的宿主（Agnes）成立；开源模型或纯文生图
 必须换成「参考图 / the reference image」，否则模型会把尖括号当成要画的文字。

@@ -1,0 +1,140 @@
+{
+  "schema": "style-profile/1.0",
+  "style_id": "tv-anime-cel-solidbg",
+  "display_name": "TV 动画赛璐璐（纯色底头像）",
+  "version": "1.0.1-draft",
+  "status": "draft",
+  "source": {
+    "type": "derived",
+    "parent": "tv-anime-cel@1.2.0",
+    "note": "继承 tv-anime-cel 的线条、上色、面部规则；仅放宽与底色有关的闸门（亮度 value_p50、近白占比 near_white_share），底色允许为任意纯色或浅色平涂。未经实测标定，需用已确认合格的纯色底头像校验。"
+  },
+  "prompt_anchor": "1990 年代日本 TV 动画赛璐璐风格：flat cel shading，hard-edged two-tone shadow（硬边双色阶阴影），2-3px dark-brown outline（2 到 3 像素深棕描边，不是纯黑粗线），no gradient、no airbrush、no glossy highlight，muted 90s TV palette（低彩度年代色板），reduced internal detail（减少发丝与布料细碎细节），slightly darker exposure（整体曝光略压暗，暗部沉而不死黑），subtle film grain（轻微胶片颗粒），平涂上色、平面感优先，无厚涂、无 3D 渲染",
+  "line": {
+    "weight_px_at_1024": [
+      2,
+      3
+    ],
+    "color": "#2b211d",
+    "color_note": "深棕黑，不是纯黑；外轮廓略粗，发丝与脸颊纹用更细的线",
+    "style": "连续闭合线稿，转角干净，不做铅笔毛边"
+  },
+  "shading": {
+    "layers": 2,
+    "gradient": false,
+    "note": "底色 + 一层硬边暗部；头发、衣服各 2 个色阶；高光只用小块纯色，不做喷枪渐变",
+    "highlight": "只保留眼睛一点白色小高光；不画头发/衣物/帽子的镜面高光带，不做写实反光"
+  },
+  "palette": {
+    "saturation_tendency": "中高饱和，肤色暖、红蓝主色明确，背景降饱和",
+    "value_tendency": "明快，暗部不死黑",
+    "max_main_colors": 8,
+    "anchor_colors": [
+      "#f0c39a",
+      "#d94b3f",
+      "#2f5fa8",
+      "#f4f2ec",
+      "#20262a"
+    ]
+  },
+  "face": {
+    "eyes": "大眼，杏仁形；上眼睑粗黑线，白色眼白，琥珀/棕色虹膜 + 黑色瞳孔 + 一点白高光；虹膜近圆形，不画写实反光",
+    "brows": "黑色粗眉，外侧上挑，眉形明确",
+    "nose": "小点或短楔形阴影，不画鼻孔",
+    "mouth": "单线嘴形；张口时用红色平涂口腔，不画牙齿细节",
+    "proportions": "儿童/少年比例：眼大、鼻嘴小、下巴圆；脸宽约为头宽（含发）的 0.55–0.65，头身比约 1:5"
+  },
+  "background": {
+    "mode": "flat",
+    "allowed": [
+      "flat_plain",
+      "dark_solid",
+      "light_solid"
+    ],
+    "note": "纯色底头像：允许任意单色平涂底，铺满方形画布至四边；底色由人工确认。",
+    "forbidden": [
+      "写实场景",
+      "高噪点纹理",
+      "文字与水印",
+      "圆形画框",
+      "装饰边框"
+    ]
+  },
+  "canvas": {
+    "aspect": "1:1",
+    "bleed": true,
+    "frame": false,
+    "circular_mask": false,
+    "crop_export": "square",
+    "prompt_clause": "square canvas, no border, no frame, no circular mask, edge-to-edge",
+    "note": "画布与导出一律方形；禁止圆形徽章/画框/装饰圈；背景铺满四边，不靠留白制造边框"
+  },
+  "prompt_forbidden": [
+    "3D 渲染",
+    "写实皮肤",
+    "厚涂油画",
+    "赛博霓虹",
+    "大面积渐变光效",
+    "复杂场景背景",
+    "镜面高光",
+    "写实反光",
+    "喷枪渐变",
+    "发丝细碎细节",
+    "纯黑粗描边"
+  ],
+  "gate": {
+    "palette_colors": [
+      5,
+      13
+    ],
+    "saturation": [
+      0.25,
+      0.55
+    ],
+    "edge_density": [
+      0.045,
+      0.1
+    ],
+    "hard_soft_ratio_max": 0.8,
+    "background_stddev_max": 20,
+    "background_modes": [
+      "flat",
+      "simple",
+      "gradient"
+    ],
+    "note": "纯色底草稿档案 v1.0.1：saturation 0.25–0.55、edge_density 0.045–0.10 为依据 TV 9 帧的初步范围；去掉与底色相关的 value_p50 与 near_white_share；hard_soft_ratio≤0.80 保持。草稿，未定稿。"
+  },
+  "calibration": {
+    "method": "TV 动画截图 9 帧（亮度中位 ≥0.5，剔除 3 帧深色场景），同一角色（小智）。去黑边后取画面中心区域，与 avatar_pipeline.style_metrics 口径一致。",
+    "measured_tv_9_frames": {
+      "saturation": [
+        0.274,
+        0.315,
+        0.394
+      ],
+      "edge_density": [
+        0.055,
+        0.069,
+        0.097
+      ],
+      "value_p50": [
+        0.616,
+        0.639,
+        0.663
+      ],
+      "hard_soft_ratio": [
+        0.266,
+        0.538,
+        0.689
+      ],
+      "near_white_share": [
+        0.0,
+        0.001,
+        0.112
+      ]
+    },
+    "source_file": "ai-anime-avatar/review/tv-frames-metrics.json",
+    "note": "样本仅 9 帧、1 个角色，属于初步参考，未定稿。饱和度下限 0.25 留了容差以覆盖 TV 最低 0.274；边缘密度上限 0.10 覆盖 TV 最大 0.097。旧版 gate 的边缘密度区间 0.010–0.045 与 TV 实测不符（TV 9 帧全部超过 0.045），因此已修正。",
+    "status": "草稿，需更多样本（多角色、多场景）复核后才可转正"
+  }
+}

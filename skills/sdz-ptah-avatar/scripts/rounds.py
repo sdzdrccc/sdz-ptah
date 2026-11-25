@@ -39,6 +39,8 @@ import re
 import sys
 from datetime import datetime
 
+from path_names import safe_slug
+
 SCHEMA = "avatar-rounds/1.0"
 DEFAULT_BUDGET = 10
 SATISFACTIONS = ("satisfied", "unsatisfied")
@@ -133,8 +135,8 @@ def default_budget(order_dir):
 def order_dir_for(root, character):
     """一个角色一个目录：只用角色 slug，不加序号、不加时间戳。"""
     os.makedirs(root, exist_ok=True)
-    slug = re.sub(r"[^0-9A-Za-z_-]+", "-", character or "order").strip("-").lower()
-    return os.path.join(root, slug or "order")
+    slug = safe_slug(character or "order", lower=True, fallback="order")
+    return os.path.join(root, slug)
 
 
 def default_order_id():

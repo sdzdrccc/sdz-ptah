@@ -888,6 +888,49 @@ def _refine_eye(img, box, pad=0.5):
     return sx / sw, sy / sw
 
 
+def _peak_eye_candidates(img, work_w=480, cell=4, min_sat=150):
+    """超大饱和块里的局部峰值：虹膜是高饱和小点，脸颊/头发是大片低峰值。
+
+    只在 _sat_components 因 too-big 丢弃的区域里找峰值，不改已通过的小块。
+    返回 [{cx, cy, area, sat}]，坐标为工作图坐标（与 _sat_components 一致）。
+    """
+    W, H = img.size
+    w = min(work_w, W)
+    h = int(round(H * w / float(W)))
+    small = img.convert("RGB").resize((w, h), Image.BILINEAR)
+    px = small.load()
+    out = []
+    # 逐格取饱和度，找 >= min_sat 的小连通点（每点面积很小，且峰值明显）
+    cw, ch = w // cell, h // cell
+    hot = [[False] * cw for _ in range(ch)]
+    peak = {}
+    for gy in range(ch):
+        for gx in range(cw):
+            best = 0
+            for y in range(gy * cell, (gy + 1) * cell):
+                for x in range(gx * cell, (gx + 1) * cell):
+                    r, g, b = px[x, y]
+                    mx, mn = max(r, g, b), min(r, g, b)
+                    if mx >= VAL_MIN and mx - mn > best:
+                        best = mx - mn
+            if best >= min_sat:
+                hot[gy][gx] = True
+                peak[(gx, gy)] = best
+    for cells in _grid_components(hot, cw, ch):
+        if not (1 <= len(cells) <= 12):
+            continue
+        xs = [c[0] for c in cells]; ys = [c[1] for c in cells]
+        bw = (max(xs) - min(xs) + 1) * cell
+        bh = (max(ys) - min(ys) + 1) * cell
+        if bw > 4 * cell or bh > 4 * cell:
+            continue
+        if min(xs) <= 0 or min(ys) <= 0 or max(xs) >= cw - 1 or max(ys) >= ch - 1:
+            continue
+        out.append({"cx": min(xs) * cell + bw / 2.0, "cy": min(ys) * cell + bh / 2.0,
+                    "area": len(cells),
+                    "sat": sum(peak[c] for c in cells) / float(len(cells))})
+    return out, W / float(w), w, h
+
 def detect_face(img):
     """返回 {box, eye_y, eyes, conf, candidates, method} 或 None。"""
     W, H = img.size
@@ -897,6 +940,13 @@ def detect_face(img):
     # 配对：两个高饱和块，水平间距与高度差符合双眼几何
     best = None
     cand = [c for c in comps if c["cy"] < 0.80 * sh and c["area"] >= EYE_AREA_MIN]
+    # 双眼被巨块整体丢弃时（too-big），补充超大块内的局部饱和峰值作为候选
+    if len(cand) < 2:
+        peaks, _s, _pw, _ph = _peak_eye_candidates(img)
+        for p in peaks:
+            if p["cy"] < 0.80 * sh and p["cy"] > 0.10 * sh:
+                cand.append({"cx": p["cx"], "cy": p["cy"], "area": max(p["area"], EYE_AREA_MIN),
+                             "sat": p["sat"], "bbox": (p["cx"], p["cy"], 4, 4)})
     cand.sort(key=lambda c: -c["sat"])
     cand = cand[:12]
     for i in range(len(cand)):

@@ -1,0 +1,50 @@
+work 480 480 grid 120 120 cell 4
+marked total: 3646
+SAT_MIN 60 VAL_MIN 70 ratio 0.25 EYE_AREA_MIN 6 EYE_AREA_MAX 0.015
+
+眼睛区域标记图 (#=marked, 数字=命中像素数/16)
+     3344444444445555555555666666666677777777778
+     8901234567890123456789012345678901234567890
+ 40  1......2####.1###.........3########2.......
+ 41  #######3..3#3####........#######1..3#######
+ 42  ############3####.......######2############
+ 43  #####1...1#######......###########....1####
+ 44  ####1...1..######.....##########3..#...1###
+ 45  ###3...3#.#2#####....###########1..#2...###
+ 46  ###....1..######2...#############1.##....##
+ 47  ###....#########..1##################....##
+ 48  ###....##3######.2#############3##3##....##
+ 49  ###....##.##.###1##############.##.##....##
+ 50  ###....##.##.##################.##.##....##
+ 51  ###....##1##.##################.##.##....##
+ 52  ###....#####1##################.#####....##
+ 53  ###....#############################3....##
+ 54  ###2....###1####################2###....1##
+ 55  ####....3##.####################.##3....###
+
+grid_components (过滤前): 20
+  area=2530 bbox=(27,14)-(91,86) cx=238   cy=202   REJECT too-big
+  area=460  bbox=(34,94)-(54,119) cx=178   cy=428   REJECT touch-edge,too-big
+  area=458  bbox=(66,94)-(85,119) cx=304   cy=428   REJECT touch-edge,too-big
+  area=88   bbox=(90,89)-(96,111) cx=374   cy=402   KEPT
+  area=85   bbox=(24,89)-(31,110) cx=112   cy=400   KEPT
+  area=11   bbox=(57,4)-(62,5) cx=240   cy=20    KEPT
+  area=1    bbox=(76,8)-(76,8) cx=306   cy=34    REJECT cells<3,too-small
+  area=1    bbox=(42,9)-(42,9) cx=170   cy=38    REJECT cells<3,too-small
+  area=1    bbox=(46,45)-(46,45) cx=186   cy=182   REJECT cells<3,too-small
+  area=1    bbox=(98,45)-(98,45) cx=394   cy=182   REJECT cells<3,too-small
+  area=1    bbox=(25,62)-(25,62) cx=102   cy=250   REJECT cells<3,too-small
+  area=1    bbox=(50,91)-(50,91) cx=202   cy=366   REJECT cells<3,too-small
+  area=1    bbox=(100,96)-(100,96) cx=402   cy=386   REJECT cells<3,too-small
+  area=1    bbox=(101,99)-(101,99) cx=406   cy=398   REJECT cells<3,too-small
+  area=1    bbox=(18,104)-(18,104) cx=74    cy=418   REJECT cells<3,too-small
+  area=1    bbox=(103,104)-(103,104) cx=414   cy=418   REJECT cells<3,too-small
+  area=1    bbox=(105,108)-(105,108) cx=422   cy=434   REJECT cells<3,too-small
+  area=1    bbox=(16,109)-(16,109) cx=66    cy=438   REJECT cells<3,too-small
+  area=1    bbox=(106,112)-(106,112) cx=426   cy=450   REJECT cells<3,too-small
+  area=1    bbox=(12,119)-(12,119) cx=50    cy=478   REJECT cells<3,too-small,touch-edge
+
+_sat_components 返回: 3 个
+  area=11   sat=112.0  cx=240   cy=20   
+  area=85   sat=104.0  cx=112   cy=400  
+  area=88   sat=105.5  cx=374   cy=402  

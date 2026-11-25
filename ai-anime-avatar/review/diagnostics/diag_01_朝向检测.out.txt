@@ -1,0 +1,5 @@
+image 1024 1024 scale 2.133 sw 480 sh 480
+components: 3
+candidates after filter: 1
+  area 11 sat 112.0 cx 240.0 cy 20.0
+pair rejects: {}

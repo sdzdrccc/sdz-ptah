@@ -1,0 +1,38 @@
+== 全部组件 ==
+  组件#0 area=11 bbox=(57,4)-(62,5) cx=240 cy=20 KEPT
+  组件#1 area=1 bbox=(76,8)-(76,8) cx=306 cy=34 REJECT:cells<3,too-small
+  组件#2 area=1 bbox=(42,9)-(42,9) cx=170 cy=38 REJECT:cells<3,too-small
+  组件#3 area=2530 bbox=(27,14)-(91,86) cx=238 cy=202 REJECT:too-big
+  组件#4 area=1 bbox=(46,45)-(46,45) cx=186 cy=182 REJECT:cells<3,too-small
+  组件#5 area=1 bbox=(98,45)-(98,45) cx=394 cy=182 REJECT:cells<3,too-small
+  组件#6 area=1 bbox=(25,62)-(25,62) cx=102 cy=250 REJECT:cells<3,too-small
+  组件#7 area=85 bbox=(24,89)-(31,110) cx=112 cy=400 KEPT
+  组件#8 area=88 bbox=(90,89)-(96,111) cx=374 cy=402 KEPT
+  组件#9 area=1 bbox=(50,91)-(50,91) cx=202 cy=366 REJECT:cells<3,too-small
+  组件#10 area=460 bbox=(34,94)-(54,119) cx=178 cy=428 REJECT:touch-edge,too-big
+  组件#11 area=458 bbox=(66,94)-(85,119) cx=304 cy=428 REJECT:touch-edge,too-big
+  组件#12 area=1 bbox=(100,96)-(100,96) cx=402 cy=386 REJECT:cells<3,too-small
+  组件#13 area=1 bbox=(101,99)-(101,99) cx=406 cy=398 REJECT:cells<3,too-small
+  组件#14 area=1 bbox=(18,104)-(18,104) cx=74 cy=418 REJECT:cells<3,too-small
+  组件#15 area=1 bbox=(103,104)-(103,104) cx=414 cy=418 REJECT:cells<3,too-small
+  组件#16 area=1 bbox=(105,108)-(105,108) cx=422 cy=434 REJECT:cells<3,too-small
+  组件#17 area=1 bbox=(16,109)-(16,109) cx=66 cy=438 REJECT:cells<3,too-small
+  组件#18 area=1 bbox=(106,112)-(106,112) cx=426 cy=450 REJECT:cells<3,too-small
+  组件#19 area=1 bbox=(12,119)-(12,119) cx=50 cy=478 REJECT:cells<3,too-small,touch-edge
+
+== 左眼区域 (采样 y≈180) 格子坐标 gx 42..50 gy 44..48 ==
+ gy= 44  .  .  .  .  .  .  . 03 03 
+ gy= 45  .  .  .  . 04  . 03  . 03 
+ gy= 46  .  .  .  .  .  . 03 03 03 
+ gy= 47  .  .  . 03 03 03 03 03 03 
+ gy= 48  .  .  . 03 03  . 03 03 03 
+  归属 18 格 -> 组件#3 area=2530 bbox=(27,14)-(91,86) cx=238 cy=202 REJECT:too-big
+  归属 1 格 -> 组件#4 area=1 bbox=(46,45)-(46,45) cx=186 cy=182 REJECT:cells<3,too-small
+
+== 右眼区域 (采样 y≈180) 格子坐标 gx 70..76 gy 44..48 ==
+ gy= 44  .  .  . 03  .  .  . 
+ gy= 45  .  .  . 03  .  .  . 
+ gy= 46 03  .  . 03 03  .  . 
+ gy= 47 03 03 03 03 03  .  . 
+ gy= 48 03 03  . 03 03  .  . 
+  归属 14 格 -> 组件#3 area=2530 bbox=(27,14)-(91,86) cx=238 cy=202 REJECT:too-big

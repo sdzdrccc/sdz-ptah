@@ -6,12 +6,21 @@
 __pycache__/
 *.pyc
 
+# WorkBuddy 工作日志与项目记忆（不入库）
+.workbuddy/
+
+# 运行时订单数据：含生成图与逐单台账，运行时产生，不入库
+avatar-orders/
+
+# 本地上传缓存：网页控制台的参考图上传，运行时产生，不入库
+sdz-ptah-app/uploads/
+
+# 临时安全网备份：变更前的 .bak 快照，不入库
+*.bak-*
+
 # 本地校准基准图：现成动漫作品角色图，仅作阈值校准，不进公开仓库
 ai-anime-avatar/基准/
 
 # 生成的验证输出：体积大（单轮约 35 MB）且可由 avatar_pipeline.py 完整复现
-ai-anime-avatar/verify/out/
-ai-anime-avatar/verify/out_global/
-ai-anime-avatar/verify/out_installed/
-ai-anime-avatar/verify/out_4k_probe/
-ai-anime-avatar/verify/control_out/
+# 统一命名 out-<变体>，见 CONVENTIONS.md
+ai-anime-avatar/verify/out-*/

@@ -40,6 +40,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import avatar_pipeline as ap  # noqa: E402
+from path_names import safe_slug  # noqa: E402
 
 CONFIRM_WORDS = ("确认", "生成", "confirm")
 REF_EXTS = (".png", ".jpg", ".jpeg", ".webp")
@@ -123,7 +124,7 @@ def sha256_file(path):
 def detect_prefix(order_dir, brief):
     prefix = brief.get("character_id")
     if prefix:
-        return re.sub(r"[^0-9A-Za-z_-]+", "-", str(prefix)).strip("-") or "avatar"
+        return safe_slug(prefix, fallback="avatar")
     for name in sorted(os.listdir(order_dir)):
         m = re.match(r"(.+)-avatar-\d+(?:-src)?\.(?:png|jpe?g|webp)$", name, re.I)
         if m:
@@ -192,12 +193,22 @@ def archive_references(brief, order_dir, sources, role, backend, mode, consent):
     return gen, errors
 
 
+# --source 取值 → 写入 confirm.source 的值（双通道设计 4.2）
+SOURCE_MAP = {
+    "chat": "chat_message",
+    "card": "confirmation_card",
+    "web": "web_form",
+    "agent": "agent_tool_call",
+}
+
+
 def main():
     parser = argparse.ArgumentParser(description="confirm an avatar order")
     parser.add_argument("--brief", required=True, help="brief.json 路径")
     parser.add_argument("--confirm", default=None, help="用户确认原文")
-    parser.add_argument("--source", default="chat", choices=["chat", "card"],
-                        help="chat=聊天文字确认；card=确认卡片回传")
+    parser.add_argument("--source", default="chat", choices=sorted(SOURCE_MAP),
+                        help="chat=聊天文字确认；card=确认卡片回传；"
+                             "web=网页表单确认；agent=智能体经 HTTP 工具确认")
     parser.add_argument("--gender", choices=list(ap.GENDERS), default=None,
                         help="可选：写入/覆盖性别")
     parser.add_argument("--angle", choices=list(ap.ANGLE_IDS), default=None,
@@ -307,7 +318,7 @@ def main():
         print("brief invalid: " + "; ".join(errors))
         return 2
 
-    src = "confirmation_card" if args.source == "card" else "chat_message"
+    src = SOURCE_MAP[args.source]
     norm["confirm"] = {
         "confirmed": True,
         "at": datetime.now().isoformat(timespec="seconds"),

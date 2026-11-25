@@ -124,10 +124,17 @@ py -3 "$skill\scripts\confirm_order.py" --brief "$order\brief.json" `
 - 想用 2511 版本作对比：把后端换成 `modelscope-qwen-edit-2511`。
 - 可调分段参数（写在 `@` 后，用 `;` 分隔）：`steps`、`guidance`、`seed`、`negative`。
 
-### ③ 编译提示词（不要手写）
+### ③ 写提示词（agent 编写，按 prompt-spec-v1）
 
-唯一权威是 `scripts/compile_prompt.py`；它读角色卡 `skin_spec` 的三档色值锚点、
-角度矩阵与后端能力，产出正/反向词并写入 JSON。手写稿只在角色没有角色卡时兜底。
+**现行做法**：提示词由执行 agent 编写，颜色从参考图实测，完整规则见
+`references/prompt-writing-spec.md`。步骤：
+
+1. 取色：`py -3 "$skill\scripts\ref_palette.py" --image <参考图> --skin 皮肤=<框> --region <部位>=<框> --json "$order\palette.json"`
+2. 按规范第 3 节七段顺序写正向段，按第 5 节写负向段（MiniMax 负向必须留空）。
+3. 存成 `$order\prompt-input.json`（字段见规范第 7 节）。
+4. 自查：`py -3 "$skill\scripts\check_prompt.py" --prompt-file "$order\prompt-input.json" --backend <后端 id>`，退出码 0 才进入第 ④ 步。
+
+以下编译器用法保留为**可选**：角色有角色卡时，可以先用它起草，再按规范改颜色与措辞。
 
 ```powershell
 py -3 "$skill\scripts\compile_prompt.py" `

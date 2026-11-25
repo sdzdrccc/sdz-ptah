@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "open_browser": True,
     "orders_root": os.path.join(PROJECT_ROOT, "avatar-orders"),
     "skill_root": os.path.join(PROJECT_ROOT, "skills", "sdz-ptah-avatar"),
+    "default_preset": "modelscope-qwen-edit",
 }
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 DEFAULT_SKIN_SPEC = {
@@ -67,6 +68,15 @@ SKILL_ROOT = CONFIG["skill_root"]
 SCRIPTS = os.path.join(SKILL_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS)
 from list_presets import resolve_presets, validate_selection  # noqa: E402
+# 路径段规整与流水线脚本共用同一份规则（scripts/path_names.py）。
+# 两边规则不一致会把同一个订单拆到两个目录，因此这里不再本地实现。
+from path_names import (NAME_MAX_LEN, WINDOWS_RESERVED_NAMES,  # noqa: E402,F401
+                        safe_slug)
+sys.path.insert(0, APP_DIR)
+import api_errors  # noqa: E402
+import image_prep  # noqa: E402
+import orderlock  # noqa: E402
+import simple_input  # noqa: E402
 
 
 def orders_root():
@@ -74,10 +84,18 @@ def orders_root():
 
 
 def safe_name(value):
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "")).strip("-.")
-    if not text or text in (".", ".."):
-        raise ValueError("名称不合法：%r" % value)
-    return text
+    r"""把任意输入规整成单个路径段（目录名 / 文件主干），保留中文等 Unicode 字母。
+
+    规则：
+    - NFKC 归一化：全角字母数字折回半角，兼容字符合并（`小雪。` → `小雪.`）
+    - 除 Unicode 字母数字、下划线、点、加号、短横外，一律折叠为 `-`；
+      因此 `/`、`\`、控制字符等路径分隔与非法字符不可能穿透
+    - 去掉首尾的点、空格、短横（Windows 会静默丢弃尾部点与空格）
+    - Windows 保留设备名加 `_` 前缀规避
+    - 超过 NAME_MAX_LEN 截断
+    - 结果必须是单一相对段，空串、`.`、`..` 一律拒绝
+    """
+    return safe_slug(value, extra=".+")
 
 
 def order_dir(name):
@@ -85,6 +103,19 @@ def order_dir(name):
     if not os.path.isdir(path):
         raise ValueError("订单目录不存在：%s" % name)
     return path
+
+
+def locked(path, channel):
+    """同一订单目录的互斥锁（设计第 6 节）；被占用抛 orderlock.OrderBusy。"""
+    def _warn(holder, why):
+        print("[lock] 接管陈旧锁（%s）：%s" % (why, holder))
+    ttl = int(CONFIG.get("lock_ttl_s") or orderlock.DEFAULT_TTL_S)
+    return orderlock.order_lock(path, str(channel or "web")[:20], ttl_s=ttl, on_takeover=_warn)
+
+
+def order_channel(path):
+    brief = load_json(os.path.join(path, "brief.json"), {}) or {}
+    return brief.get("channel") or "web"
 
 
 def run_py(script, *args):
@@ -98,13 +129,24 @@ def run_py(script, *args):
 
 
 def last_json(text):
-    for line in reversed((text or "").splitlines()):
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                return json.loads(line)
-            except ValueError:
-                continue
+    r"""取输出里最后一个完整的 JSON 对象。
+
+    脚本侧用 `echo()`（`json.dumps(..., indent=2)`）打印结果，是**多行** JSON；
+    旧实现逐行 `json.loads` 永远失败，导致 `order_dir` / `order_id` 总走回退值，
+    跨秒时会和 `rounds.json` 的 order_id 不一致（R8）。
+
+    只把「行首的 `{`」当候选起点：JSON 字符串里的换行会被转义成 `\n`，
+    所以真实文本中行首出现的 `{` 只会是某个 JSON 文档的开头。
+    """
+    raw = text or ""
+    decoder = json.JSONDecoder()
+    for match in reversed(list(re.finditer(r"(?m)^\{", raw))):
+        try:
+            obj, _end = decoder.raw_decode(raw, match.start())
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj
     return None
 
 
@@ -316,9 +358,17 @@ def meta_payload():
         profile_options(os.path.join(SKILL_ROOT, "references", "styles"), "style_id"),
         profile_options(CUSTOM_STYLE_DIR, "style_id"),
     )
-    preset_doc, _ = resolve_presets()
+    preset_doc, preset_rows = resolve_presets()
     token_set = any(os.environ.get(k) for k in ("MODELSCOPE_TOKEN", "MODELSCOPE_API_KEY"))
     return {
+        "simple": simple_preset_info(preset_rows),
+        "sizes": simple_input.SIZE_CHOICES,
+        "ratios": simple_input.RATIOS,
+        "verified_sizes": list(simple_input.VERIFIED_SIZES),
+        "count_choices": list(simple_input.COUNT_CHOICES),
+        "default_model": CONFIG.get("default_model") or "modelscope-qwen-edit",
+        "max_count": simple_input.MAX_COUNT,
+        "simple_budget": SIMPLE_BUDGET,
         "project_root": PROJECT_ROOT,
         "skill_root": SKILL_ROOT,
         "orders_root": orders_root(),
@@ -328,6 +378,139 @@ def meta_payload():
         "modelscope_token_set": token_set,
         "python": sys.version.split()[0],
     }
+
+
+SIMPLE_BUDGET = 10
+
+
+def simple_preset_info(presets):
+    """极简页用的默认方案摘要：是否可用、不可用原因、是否需要参考图 / 外发同意。"""
+    pid = CONFIG.get("default_preset") or "modelscope-qwen-edit"
+    p = next((x for x in presets if x.get("id") == pid), None)
+    if p is None:
+        return {"preset_id": pid, "label": pid, "selectable": False,
+                "reasons": ["方案不存在：%s（检查 config.json 的 default_preset）" % pid],
+                "warnings": [], "needs_reference": True, "egress": True, "verified": False}
+    policy = p.get("policy") or {}
+    return {"preset_id": pid, "label": p.get("label") or pid,
+            "selectable": bool(p.get("selectable")),
+            "reasons": list(p.get("reasons") or []),
+            "warnings": list(p.get("warnings") or []),
+            "needs_reference": p.get("mode") != "text2img",
+            "egress": bool(policy.get("data_egress")),
+            "verified": bool(policy.get("verified"))}
+
+
+ENGINE_GROUP = {"http_modelscope": "魔搭在线", "comfyui": "本机 ComfyUI", "host": "宿主工具"}
+
+
+def registry_backends():
+    reg = load_json(os.path.join(SKILL_ROOT, "references", "backends.v2.json"), {}) or {}
+    return [b for b in reg.get("backends") or [] if isinstance(b, dict) and b.get("id")]
+
+
+def credits_per_image(spec):
+    text = " ".join(str(x) for x in ((spec.get("license") or {}).get("notes"), spec.get("note")) if x)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*魔粒\s*/\s*次", text)
+    return float(m.group(1)) if m else None
+
+
+def model_preset(spec, use_reference, params=None):
+    """把单个后端临时包装成"单段方案"，交给 list_presets 的同一套校验。"""
+    caps = spec.get("capabilities") or {}
+    ref_max = int(caps.get("reference_max") or 0)
+    mode = "reference" if (use_reference and ref_max) else "text2img"
+    engine = spec.get("engine")
+    token_env = (spec.get("secrets") or {}).get("token_env")
+    stage = {"stage": "single", "backend": spec["id"]}
+    if params:
+        stage["params"] = dict(params)
+    return {
+        "id": "model:%s" % spec["id"],
+        "label": spec.get("display_name") or spec["id"],
+        "scene": ENGINE_GROUP.get(engine, engine or ""),
+        "stages": [stage],
+        "mode": mode,
+        "requires": {
+            "reference_min": 1 if mode == "reference" else 0,
+            "reference_max": ref_max if mode == "reference" else 0,
+            "reference_roles": list(caps.get("reference_roles") or ["identity"]),
+            "egress": bool(spec.get("data_egress")),
+            "secrets": [token_env] if token_env else [],
+            "comfyui": engine == "comfyui",
+            "host_tool": engine == "host",
+        },
+        "cost": {"calls_per_image": 1, "credits_per_image": credits_per_image(spec)},
+    }
+
+
+def resolve_model(spec, use_reference, params=None):
+    """返回 (preset_doc, 已解析的方案)。宿主工具后端在网页里只会产出调用单，标为不可选。"""
+    doc, rows = resolve_presets(items=[model_preset(spec, use_reference, params)])
+    row = rows[0]
+    if spec.get("engine") == "host":
+        row["reasons"] = list(row.get("reasons") or []) + ["宿主工具只能在 agent 会话里执行，网页无法直接出图"]
+        row["selectable"] = False
+    if spec.get("engine") == "comfyui":
+        # 本机 ComfyUI：需要服务已启动，工作流已导出（available=false 时 resolve_presets 已给出原因）
+        note = "需要本机 ComfyUI 服务已启动（默认 127.0.0.1:8188）"
+        if note not in (row.get("warnings") or []):
+            row["warnings"] = list(row.get("warnings") or []) + [note]
+    return doc, row
+
+
+def scheme_of(spec):
+    """方案（大类）：网页先选方案，再在方案里选模型。"""
+    engine = spec.get("engine")
+    if engine == "comfyui":
+        return "本机 ComfyUI"
+    if engine == "host":
+        return "宿主工具"
+    name = str((spec.get("model") or {}).get("name") or (spec.get("modelscope") or {}).get("model")
+                or spec.get("id") or "").lower()
+    if "qwen" in name:
+        return "魔搭在线 · Qwen"
+    if "minimax" in name:
+        return "魔搭在线 · MiniMax"
+    return "魔搭在线 · 其他"
+
+
+def model_options():
+    """模型下拉框数据：注册表里支持单段出图的后端 + 能力 + 可用性。"""
+    out = []
+    for spec in registry_backends():
+        caps = spec.get("capabilities") or {}
+        if spec.get("engine") == "mock" or "single" not in (caps.get("stages") or []):
+            continue
+        _, row = resolve_model(spec, bool(caps.get("reference_max")))
+        lic = spec.get("license") or {}
+        out.append({
+            "id": spec["id"],
+            "label": spec.get("display_name") or spec["id"],
+            "model_name": (spec.get("model") or {}).get("name") or (spec.get("modelscope") or {}).get("model"),
+            "engine": spec.get("engine"),
+            "group": ENGINE_GROUP.get(spec.get("engine"), spec.get("engine") or "其他"),
+            "scheme": scheme_of(spec),
+            "selectable": bool(row.get("selectable")),
+            "reasons": row.get("reasons") or [],
+            "warnings": row.get("warnings") or [],
+            "verified": bool(spec.get("verified")),
+            "data_egress": bool(spec.get("data_egress")),
+            "commercial_use": lic.get("commercial_use"),
+            "license_id": lic.get("id"),
+            "credits_per_image": credits_per_image(spec),
+            "defaults": spec.get("defaults") or {},
+            "note": spec.get("note") or "",
+            "caps": {
+                "negative_prompt": bool(caps.get("negative_prompt")),
+                "seed": bool(caps.get("seed")),
+                "steps": bool(caps.get("steps")),
+                "guidance": bool(caps.get("guidance")),
+                "reference_max": int(caps.get("reference_max") or 0),
+                "sizes": list(caps.get("sizes") or [1024]),
+            },
+        })
+    return out
 
 
 def create_order(payload):
@@ -341,6 +524,9 @@ def create_order(payload):
         raise ValueError("angle 不合法")
     count = max(1, min(20, int(payload.get("count") or 1)))
     budget = max(1, min(200, int(payload.get("budget") or 10)))
+    channel = str(payload.get("channel") or "web").strip().lower()
+    if channel not in ("web", "agent"):
+        raise ValueError("channel 只能是 web / agent")
 
     character_desc = str(payload.get("character_desc") or "").strip()
     character_desc_en = str(payload.get("character_desc_en") or "").strip()
@@ -379,10 +565,143 @@ def create_order(payload):
         "budget": budget,
         "size": "1024",
         "formats": ["1024"],
+        "channel": channel,
+        "channel_source": "server.py:create_order",
     }
     save_json(os.path.join(path, "brief.json"), brief)
     return {"ok": True, "order": os.path.basename(path), "detail": order_detail(os.path.basename(path)),
             "stdout": out, "stderr": err}
+
+
+def create_simple_order(name, c):
+    """极简建单：不生成角色卡 / 风格档案，提示词由用户直接提供（prompt_source=manual）。"""
+    rc, out, err = run_py(os.path.join(SCRIPTS, "rounds.py"), "--new-order",
+                          "--root", orders_root(), "--character", name)
+    if rc != 0:
+        return {"ok": False, "rc": rc, "stdout": out, "stderr": err,
+                **api_errors.describe(rc, out, err)}
+    info = last_json(out) or {}
+    od = info.get("order_dir") or name
+    path = od if os.path.isabs(od) else os.path.join(orders_root(), od)
+    oid = info.get("order_id") or datetime.now().strftime("%Y%m%d-%H%M%S")
+    brief = {
+        "order_id": oid,
+        "ordered_at": info.get("ordered_at") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "character_id": name,
+        "character": name,
+        "style_id": "tv-anime-cel",
+        "gender": "unspecified",
+        "gender_source": "unspecified",
+        "angle": "front",
+        "angle_source": "default",
+        "count": c["count"],
+        "budget": SIMPLE_BUDGET,
+        "size": "1024",
+        "formats": ["1024"],
+        "render_size": "%dx%d" % (c["width"], c["height"]),
+        "channel": c["channel"],
+        "channel_source": "server.py:simple_generate",
+        "prompt_source": "manual",
+        "prompts_input": {"positive": c["positive"], "negative": c["negative"]},
+        "ui_settings": {k: c.get(k) for k in ("model", "preset_id", "use_reference", "seed",
+                                              "steps", "guidance", "count")},
+    }
+    save_json(os.path.join(path, "brief.json"), brief)
+    prompt_doc = {"prompt_zh": c["positive"], "prompt_source": "manual"}
+    if c["negative"]:
+        prompt_doc["negative"] = c["negative"]
+    save_json(os.path.join(path, "prompt-input.json"), prompt_doc)
+    return {"ok": True, "order": os.path.basename(path), "path": path, "stdout": out, "stderr": err}
+
+
+def simple_generate(payload):
+    """网页 / agent 的一步式入口：建单 → 存参考图 → 确认 → 出图（或 dry-run）。
+
+    调用方（_dispatch）已持有该名称目录的互斥锁；这里不再加锁。
+    """
+    c = simple_input.clean(payload)
+    name = safe_name(c["name"])
+    # 模糊肤色词已在 clean() 里自动换成具体色值；把修改记录和修正后的提示词带回网页
+    autofix_info = {"autofix": c.get("autofix") or [],
+                    "positive": c["positive"], "negative": c["negative"]}
+
+    if c["model"]:
+        spec = next((b for b in registry_backends() if b.get("id") == c["model"]), None)
+        if spec is None:
+            raise ValueError("未知模型：%s" % c["model"])
+        caps = spec.get("capabilities") or {}
+        params = {}
+        if c["steps"] is not None and caps.get("steps"):
+            params["steps"] = c["steps"]
+        if c["guidance"] is not None and caps.get("guidance"):
+            params["guidance"] = c["guidance"]
+        preset_doc, preset = resolve_model(spec, c["use_reference"], params)
+        preset_id = preset["id"]
+        # 用户主动关掉"图片编辑 / 图生图"开关，本身就是显式选择文生图
+        if not c["use_reference"]:
+            c["text2img_consent"] = True
+    else:
+        preset_id = c["preset_id"] or CONFIG.get("default_preset") or "modelscope-qwen-edit"
+        preset_doc, presets = resolve_presets()
+        preset = next((p for p in presets if p.get("id") == preset_id), None)
+        if preset is None:
+            raise ValueError("方案不存在：%s" % preset_id)
+    if not preset.get("selectable"):
+        reasons = list(preset.get("reasons") or ["方案当前不可用"])
+        return {"ok": False, "code": "preset_unavailable", "http_status": 503,
+                "error": "；".join(reasons), "errors": reasons, "retryable": False}
+
+    needs_ref = preset.get("mode") != "text2img"
+    ref = c["reference"] if needs_ref else None   # 无参考图方案忽略已选的图
+    if needs_ref and not ref:
+        raise ValueError("该方案需要参考图，请先上传")
+    raw = None
+    if ref:
+        data_url = str(ref.get("data") or "")
+        if "," not in data_url or not data_url.startswith("data:"):
+            raise ValueError("需要 data URL 格式的参考图内容")
+        try:
+            raw = base64.b64decode(data_url.split(",", 1)[1], validate=False)
+        except Exception:  # noqa: BLE001
+            raise ValueError("参考图编码无效")
+        image_prep.prepare(raw)  # 提前校验能否解码，避免留下空订单
+
+    errors, warnings = validate_selection(preset, refs=1 if ref else 0,
+                                          egress_consent=c["egress_consent"],
+                                          text2img_consent=c["text2img_consent"],
+                                          commercial=False)
+    if errors:
+        return {"ok": False, "errors": errors, "warnings": warnings,
+                "error": "；".join(errors), **api_errors.describe_messages(errors)}
+
+    created = create_simple_order(name, c)
+    if not created.get("ok"):
+        return created
+    order = created["order"]
+
+    refs = []
+    if ref:
+        up = upload_reference(order, {"name": ref.get("name") or "reference.png",
+                                      "data": ref["data"]})
+        refs = [up["path"]]
+
+    conf = confirm_order(order, {"preset_id": preset_id, "confirm_text": "确认生成",
+                                 "references": refs, "egress_consent": c["egress_consent"],
+                                 "text2img_consent": c["text2img_consent"],
+                                 "seed": c["seed"], "budget": SIMPLE_BUDGET},
+                         preset=preset, preset_doc=preset_doc)
+    conf["order"] = order
+    if not conf.get("ok"):
+        conf.setdefault("error", "；".join(str(e) for e in conf.get("errors") or []))
+        return conf
+
+    res = generate_order(order, {"count": c["count"], "dry_run": c["dry_run"]})
+    res["order"] = order
+    res["warnings"] = warnings
+    res.update(autofix_info)
+    if not res.get("ok"):
+        res.setdefault("error", (res.get("stderr") or res.get("stdout") or "")[-400:])
+    return res
 
 
 def upload_reference(name, payload):
@@ -399,23 +718,29 @@ def upload_reference(name, payload):
         raise ValueError("文件为空")
     if len(raw) > 20 * 1024 * 1024:
         raise ValueError("参考图超过 20MB，请先压缩")
+    raw, ext, prep = image_prep.prepare(
+        raw,
+        max_edge=int(CONFIG.get("image_max_edge") or image_prep.DEFAULT_MAX_EDGE),
+        max_bytes=int(CONFIG.get("image_max_bytes") or image_prep.DEFAULT_MAX_BYTES))
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     saved_name = "%s-upload-%s%s" % (os.path.basename(path), stamp, ext)
     saved_path = os.path.join(UPLOAD_DIR, saved_name)
     with open(saved_path, "wb") as fh:
         fh.write(raw)
     return {"ok": True, "name": saved_name, "path": saved_path,
-            "size": len(raw), "order": os.path.basename(path)}
+            "size": len(raw), "order": os.path.basename(path), "prepare": prep}
 
 
-def confirm_order(name, payload):
+def confirm_order(name, payload, preset=None, preset_doc=None):
     path = order_dir(name)
     brief = load_json(os.path.join(path, "brief.json"), {}) or {}
-    preset_id = payload.get("preset_id")
-    preset_doc, presets = resolve_presets()
-    preset = next((p for p in presets if p.get("id") == preset_id), None)
     if preset is None:
-        raise ValueError("未知方案：%s" % preset_id)
+        preset_id = payload.get("preset_id")
+        preset_doc, presets = resolve_presets()
+        preset = next((p for p in presets if p.get("id") == preset_id), None)
+        if preset is None:
+            raise ValueError("未知方案：%s" % preset_id)
+    preset_doc = preset_doc or {}
 
     refs = []
     for item in payload.get("references") or []:
@@ -431,12 +756,14 @@ def confirm_order(name, payload):
                                           text2img_consent=text2img,
                                           commercial=commercial)
     if errors:
-        return {"ok": False, "errors": errors, "warnings": warnings}
+        return {"ok": False, "errors": errors, "warnings": warnings,
+                **api_errors.describe_messages(errors)}
 
     budget = int(payload.get("budget") or brief.get("budget") or 10)
     args = ["--brief", os.path.join(path, "brief.json"),
             "--confirm", str(payload.get("confirm_text") or "确认生成"),
-            "--source", "card", "--budget", str(budget),
+            "--source", "agent" if brief.get("channel") == "agent" else "web",
+            "--budget", str(budget),
             "--mode", preset.get("mode") or "reference",
             "--stages", preset.get("stages_arg"),
             "--backends", os.path.join(SKILL_ROOT, "references", "backends.v2.json")]
@@ -456,6 +783,7 @@ def confirm_order(name, payload):
     rc, out, err = run_py(os.path.join(SCRIPTS, "confirm_order.py"), *args)
     result = {"ok": rc == 0, "rc": rc, "stdout": out, "stderr": err,
               "warnings": warnings, "errors": [] if rc == 0 else [err or out]}
+    result.update(api_errors.describe(rc, out, err, path))
     if rc == 0:
         brief = load_json(os.path.join(path, "brief.json"), {}) or {}
         gen = brief.setdefault("generation", {})
@@ -481,6 +809,14 @@ def generate_order(name, payload):
         extra.append("--resume")
     elif payload.get("discard_pending"):
         extra.append("--discard-pending")
+    elif (load_json(os.path.join(path, "brief.json"), {}) or {}).get("prompt_source") == "manual":
+        # 手写提示词订单：不经 compile_prompt.py，提示词原样交给 generate.py（仍过 audit_prompts）
+        prompt_file = os.path.join(path, "prompt-input.json")
+        if not os.path.isfile(prompt_file):
+            raise ValueError("缺少 prompt-input.json：手写提示词订单必须有它")
+        extra += ["--prompt-file", prompt_file]
+        if payload.get("count"):
+            extra += ["--count", str(int(payload["count"]))]
     else:
         brief = load_json(os.path.join(path, "brief.json"), {}) or {}
         gen = brief.get("generation") or {}
@@ -506,7 +842,8 @@ def generate_order(name, payload):
         compile_out = cPout
         if crc != 0:
             return {"ok": False, "stage": "compile", "rc": crc,
-                    "stdout": cPout, "stderr": cperr}
+                    "stdout": cPout, "stderr": cperr,
+                    **api_errors.describe(crc, cPout, cperr, path)}
         extra += ["--prompt-file", prompt_file]
         if payload.get("count"):
             extra += ["--count", str(int(payload["count"]))]
@@ -517,8 +854,10 @@ def generate_order(name, payload):
 
     rc, out, err = run_py(os.path.join(SCRIPTS, "generate.py"),
                           "--order", path, *extra)
-    return {"ok": rc == 0, "rc": rc, "stdout": compile_out + out, "stderr": err,
-            "detail": order_detail(name)}
+    result = {"ok": rc == 0, "rc": rc, "stdout": compile_out + out, "stderr": err,
+              "detail": order_detail(name)}
+    result.update(api_errors.describe(rc, out, err, path))
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -542,6 +881,13 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         raw = self.rfile.read(length).decode("utf-8", "replace")
         return json.loads(raw or "{}")
+
+    def _result(self, res):
+        """处理函数返回的 dict 里若带 http_status，用它作为响应状态码。"""
+        status = 200
+        if isinstance(res, dict):
+            status = int(res.pop("http_status", 200) or 200)
+        return self._json(res, status)
 
     def _static(self, path):
         rel = unquote(path).lstrip("/") or "index.html"
@@ -588,6 +934,8 @@ class Handler(BaseHTTPRequestHandler):
                     doc, presets = resolve_presets()
                     return self._json({"ok": True, "version": doc.get("version"),
                                        "presets": presets})
+                if path == "/api/models":
+                    return self._json({"ok": True, "models": model_options()})
                 if path == "/api/orders":
                     return self._json({"ok": True, "orders": list_orders()})
                 m = re.match(r"^/api/orders/([^/]+)/file/(.+)$", path)
@@ -599,20 +947,39 @@ class Handler(BaseHTTPRequestHandler):
                 return self._static(path)
 
             payload = self._read_json()
+            if path == "/api/generate":
+                character = safe_name((payload or {}).get("name") or "avatar")
+                with locked(os.path.join(orders_root(), character), (payload or {}).get("channel")):
+                    result = simple_generate(payload)
+                return self._result(result)
             if path == "/api/orders":
-                return self._json(create_order(payload))
+                character = safe_name(payload.get("character_id") or payload.get("character")
+                                      or "satoshi")
+                with locked(os.path.join(orders_root(), character), payload.get("channel")):
+                    result = create_order(payload)
+                return self._result(result)
             m = re.match(r"^/api/orders/([^/]+)/upload-reference$", path)
             if m:
                 return self._json(upload_reference(unquote(m.group(1)), payload))
             m = re.match(r"^/api/orders/([^/]+)/confirm$", path)
             if m:
-                return self._json(confirm_order(unquote(m.group(1)), payload))
+                name = unquote(m.group(1))
+                path_ = order_dir(name)
+                with locked(path_, order_channel(path_)):
+                    result = confirm_order(name, payload)
+                return self._result(result)
             m = re.match(r"^/api/orders/([^/]+)/generate$", path)
             if m:
-                return self._json(generate_order(unquote(m.group(1)), payload))
+                name = unquote(m.group(1))
+                path_ = order_dir(name)
+                with locked(path_, order_channel(path_)):
+                    result = generate_order(name, payload)
+                return self._result(result)
             return self._json({"ok": False, "error": "not found"}, 404)
+        except orderlock.OrderBusy as exc:
+            return self._result(api_errors.busy(exc))
         except ValueError as exc:
-            return self._json({"ok": False, "error": str(exc)}, 400)
+            return self._json({"ok": False, "code": "bad_input", "error": str(exc)}, 400)
         except Exception as exc:  # noqa: BLE001
             return self._json({"ok": False, "error": repr(exc)}, 500)
 

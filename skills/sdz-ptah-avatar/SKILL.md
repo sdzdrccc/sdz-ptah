@@ -263,6 +263,10 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 
 ### 3. 编译提示词（顺序不可换）
 
+> **现行做法（prompt-spec-v1）**：提示词由 agent 编写，颜色用 `scripts/ref_palette.py` 从参考图实测，
+> 结构、负向分支、后端差异与示例见 `references/prompt-writing-spec.md`；写完必须跑
+> `scripts/check_prompt.py --prompt-file <文件> --backend <后端>`，退出码 0 才提交。下面的顺序规则仍然适用。
+
 按 `references/protocol.md` 第 2.6 节拼接，顺序固定：
 
 1. **风格锚点**：`references/styles/<style_id>.json` 的 `prompt_anchor` +
