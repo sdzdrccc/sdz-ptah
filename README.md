@@ -178,34 +178,54 @@ py -3 "$skill\scripts\rounds.py" --order "D:\avatar-orders\mychar" `
 
 ## 目录结构
 
+命名与目录规则见 [CONVENTIONS.md](CONVENTIONS.md)，2026-11-26 整理的变更记录见 [CHANGELOG-命名整理.md](CHANGELOG-命名整理.md)。
+
 ```text
 sdz-ptah/
 ├── README.md
+├── CONVENTIONS.md                     # 命名与目录规范（长期规则）
+├── CHANGELOG-命名整理.md              # 2026-11-26 命名整理变更说明
 ├── skills/
 │   ├── install.py                     # 安装脚本：链接 / 复制到宿主技能目录
-│   └── sdz-ptah-avatar/               # 技能本体（自包含）
+│   └── sdz-ptah-avatar/               # 技能本体（自包含，可安装）
 │       ├── SKILL.md                   # 执行入口：流程、硬约束、步骤与命令
-│       ├── scripts/
-│       │   ├── confirm_order.py       # 确认门、参考图归档、分段 / seed / 外发同意
-│       │   ├── generate.py            # 生成入口：调后端、预算预检、记账、续跑
-│       │   ├── avatar_pipeline.py     # 定位 → 裁切 → 评分 → 闸门 → 导出
-│       │   └── rounds.py              # 轮次、预算与满意度台账
-│       ├── backends/                  # 后端适配器：ComfyUI 本地 / 宿主侧 / mock
+│       ├── scripts/                   # 脚本：confirm / generate / avatar_pipeline /
+│       │                              #   rounds / check_prompt / compile_prompt /
+│       │                              #   list_presets / path_names / ref_palette /
+│       │                              #   skin_check / probe_gradio_studio
+│       ├── backends/                  # 后端适配器：ComfyUI 本地 / 宿主侧 / mock / ModelScope
 │       ├── workflows/                 # ComfyUI API 格式工作流
 │       └── references/
 │           ├── protocol.md            # 字段、阈值、原因码、manifest
+│           ├── prompt-writing-spec.md # 提示词编写规范
 │           ├── backends.v2.json       # 后端注册表（默认读取）
 │           ├── backends.json          # 1.0 注册表（兼容保留）
 │           ├── angles.json            # 角度矩阵：侧脸双向 + 正脸，3/4 预留
-│           ├── feedback.json          # 交付后的改进方向目录
-│           ├── styles/                # 风格档案
-│           └── characters/            # 角色卡（外形特征 + 人工核对清单）
-└── ai-anime-avatar/
-    ├── outputs/AI动漫头像生成方案.md   # 设计依据、阈值来源、路线图（第 10 节）
-    ├── review/                        # 评审清单、核查结果、实测记录表、接口设计
-    ├── probe/                         # 生成端能力探针（公开前清理，见路线图 M0-1）
-    └── verify/                        # 验证用需求单与校准样本
+│           ├── generation-presets.json / feedback.json
+│           ├── modelscope-runbook.md  # ModelScope 在线路线操作手册
+│           ├── styles/                # 风格档案（tv-anime-cel / solidbg / realistic-armor）
+│           ├── characters/            # 角色卡（外形特征 + 人工核对清单）
+│           └── prompt-examples/       # 提示词样例
+├── sdz-ptah-app/                      # 本地网页控制台（服务 + 前端 + 测试）
+│   ├── server.py / simple_input.py / image_prep.py
+│   ├── orderlock.py / api_errors.py   # 订单互斥锁、错误码映射
+│   ├── config.json / start.bat        # 配置（端口 8766）/ Windows 双击启动
+│   ├── web/                           # 前端：index.html / app.js / style.css
+│   ├── tests/                         # 单元测试（unittest，119 项）
+│   ├── uploads/                       # 运行时上传缓存（gitignore）
+│   └── custom/                        # 运行时生成的用户角色/风格档案（gitignore）
+├── ai-anime-avatar/
+│   ├── outputs/                       # 方案正文与设计依据
+│   ├── review/                        # 评审清单、核查结果、实测记录、魔搭模型清单
+│   │   └── diagnostics/               # 诊断脚本（diag_NN_）与输出（.out.txt）
+│   ├── probe/                         # 生成端能力探针（公开前清理，见路线图 M0-1）
+│   └── verify/                        # 验证样本；输出目录统一 out-<变体>（gitignore）
+├── architecture/draft/                # 架构设计草稿
+├── archive/backups/                   # 变更前的 .bak 快照（gitignore）
+└── avatar-orders/                     # 运行时订单数据（gitignore）
 ```
+
+> 标注 gitignore 的目录为运行时产物，不入库；`.workbuddy/`（工作日志）与 `.trae/`（宿主配置）同样不入库，未在树中列出。
 
 ## 许可与合规
 
