@@ -398,10 +398,8 @@ function renderSize() {
   $("sizeText").textContent = `${w}×${h}`;
   const id = `${w}x${h}`;
   const inCaps = edges.includes(Math.max(w, h));
-  // 实测过的尺寸不必再夸一句「已有真实出图记录」——尺寸按钮本身就是可选档位，
-  // 这句只是占地方；未实测的尺寸才需要保留警告，避免用户踩坑。
   $("sizeNote").textContent = verified.includes(id)
-    ? ""
+    ? `${w}×${h} 已有真实出图记录`
     : `${w}×${h} 未实测${inCaps ? "" : "，且不在该模型常用尺寸内"}，远端可能不接受或自动改尺寸`;
   $("sizeNote").style.color = verified.includes(id) ? "" : "var(--amber)";
 }
