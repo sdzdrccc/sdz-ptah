@@ -221,7 +221,6 @@ sdz-ptah/
 │   ├── probe/                         # 生成端能力探针（公开前清理，见路线图 M0-1）
 │   └── verify/                        # 验证样本；输出目录统一 out-<变体>（gitignore）
 ├── architecture/draft/                # 架构设计草稿
-├── archive/backups/                   # 变更前的 .bak 快照（gitignore）
 └── avatar-orders/                     # 运行时订单数据（gitignore）
 ```
 

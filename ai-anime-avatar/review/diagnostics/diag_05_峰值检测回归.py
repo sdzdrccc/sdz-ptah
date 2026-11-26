@@ -1,8 +1,10 @@
 
-import sys, os, importlib.util
+import sys, os, subprocess, tempfile, importlib.util
 from importlib.machinery import SourceFileLoader
+
 SCRIPTS = r"F:\zxc\Project\sdz-ptah\skills\sdz-ptah-avatar\scripts"
-BAK = r"F:\zxc\Project\sdz-ptah\archive\backups\2026-11-26\skills\sdz-ptah-avatar\scripts\avatar_pipeline.py.bak-before-peak-split"
+REPO = r"F:\zxc\Project\sdz-ptah"
+OLD_REF = "4ff34fc"  # 峰值检测改动之前的提交（git history 里的旧版代码）
 sys.path.insert(0, SCRIPTS)
 from PIL import Image
 import avatar_pipeline as new_ap
@@ -15,9 +17,24 @@ for p in peaks:
     print("  cx=%.0f cy=%.0f area=%d sat=%.0f" % (p["cx"], p["cy"], p["area"], p["sat"]))
 print("眼睛期望位置（工作图）: 左约(112,180)、右约(374,180) 附近")
 
-spec = importlib.util.spec_from_loader("old_ap", SourceFileLoader("old_ap", BAK))
-old_ap = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(old_ap)
+# 旧版代码不再依赖本地 .bak 备份（已清理），改从 git 历史读取。
+# 旧版模块顶层的相对 import 依赖 SCRIPTS 在 sys.path，已满足。
+tmp = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8")
+try:
+    old_src = subprocess.check_output(
+        ["git", "show", OLD_REF + ":skills/sdz-ptah-avatar/scripts/avatar_pipeline.py"],
+        cwd=REPO).decode("utf-8")
+    tmp.write(old_src)
+    tmp.close()
+    spec = importlib.util.spec_from_loader("old_ap", SourceFileLoader("old_ap", tmp.name))
+    old_ap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(old_ap)
+finally:
+    try:
+        os.unlink(tmp.name)
+    except OSError:
+        pass
+
 
 def run(mod, path):
     im = Image.open(path).convert("RGB")
@@ -26,6 +43,7 @@ def run(mod, path):
         return None
     return {"method": f.get("method"), "eyes": len(f.get("eyes") or []),
             "box": [round(v) for v in f["box"]] if f.get("box") else None}
+
 
 print("== 这张图：改前 vs 改后 ==")
 print("改前:", run(old_ap, IMG))
