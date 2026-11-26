@@ -189,11 +189,11 @@ function renderSchemeDetail() {
     ? `当前：<b>${esc(shortName(cur))}</b>`
     : "尚未选择模型";
   box.hidden = false;
-  // 方案卡只表达「走哪条通道」；具体模型在「模型管理」里选，这里不再铺模型卡片。
+  // 方案卡只表达「走哪条通道」，这里只给一行摘要；
+  // 换模型统一走「模型管理 → 选择模型」，避免页面出现两个入口。
   box.innerHTML = `
     ${notes.map((x) => `<p class="scheme-note">${esc(x)}</p>`).join("")}
-    <p class="scheme-note">共 ${items.length} 个模型，可用 ${ok} 个 · ${curLine}</p>
-    <button type="button" class="btn" data-open-models>选择模型</button>`;
+    <p class="scheme-note">共 ${items.length} 个模型，可用 ${ok} 个 · ${curLine}</p>`;
 }
 
 function renderModelList() { /* 模型区改为 renderModelArea */ }
@@ -1040,10 +1040,6 @@ function bindSchemes() {
     log(`已选方案：${btn.dataset.scheme}`);
   });
   $("schemeDetail").addEventListener("click", (e) => {
-    if (e.target.closest("[data-open-models]")) {
-      openDialog();
-      return;
-    }
     const btn = e.target.closest("[data-model]");
     if (!btn || btn.disabled) return;
     selectModel(btn.dataset.model);
