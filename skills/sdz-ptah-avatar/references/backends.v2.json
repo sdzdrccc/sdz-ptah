@@ -904,6 +904,70 @@
         "notes": "官方付费 API，商用范围以平台协议为准（本次未逐条核对，商用前须确认）；参考图会发往远端，需 egress_consent"
       },
       "note": "2026-11-26 按官方文档登记：高速版参数与限制同 MiniMax-H3-Image，只换 model 字段。**尚未实测**：需要环境变量 MINIMAX_API_KEY。"
+    },
+    {
+      "id": "dashscope-qwen-image-2.1-pro",
+      "display_name": "百炼官方 API · Qwen-Image-2.1 Pro",
+      "engine": "http_dashscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "dashscope": {
+        "url": "https://dashscope.aliyuncs.com",
+        "model": "qwen-image-2.1-pro",
+        "async_mode": true,
+        "poll_s": 5,
+        "timeout_s": 600,
+        "prompt_extend": false,
+        "watermark": false,
+        "response_format": "url",
+        "max_area": 4194304
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 10,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328,
+          1664,
+          2048
+        ],
+        "max_edge": 2048,
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "DASHSCOPE_API_KEY"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "qwen-image-2.1-pro",
+        "version": "2.1-pro"
+      },
+      "license": {
+        "id": "阿里云百炼服务协议（按量计费）",
+        "commercial_use": true,
+        "redistribute_weights": false,
+        "notes": "付费 API，商用范围以阿里云百炼服务协议为准；参考图会发往远端，需 egress_consent"
+      },
+      "note": "2026-11-26 按官方文档登记：docs.bailian.console.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference 。与魔搭的 Qwen/Qwen-Image-2.1 是同一批权重，差别在服务：**有 seed**、支持透明通道、付费合规、RPM 更高。尺寸 512²~2048²（**不支持 4096**），参考图 1~10 张；2.1 不支持 negative_prompt（仅 3.0）；2.1 不支持 b64_json，只能拿 URL（24h 有效），故拿到即下载。DashScope 协议尺寸用星号 2048*2048。模型/Endpoint/Key 必须同地域。默认关 prompt_extend，避免提示词被官方二次改写。**尚未实测**。【2026-11-26 实测】1024² 带 1 张参考图真出（**RGBA**，1.31MB，16.76s），seed=1834313677 已记录、异步 task_id 已记录。质量是目前所有后端里最好的一张：单角色、纯米色平涂背景、正面、尖刺发、脸颊三道闪电纹、蓝外套/白领/绿背带/黄纽扣全对、无畸变。透明通道未触发——容器是 RGBA 但 alpha 实测 250~255（不透明），因为提示词要求纯色背景；官方是「按提示词自动决定」，要透明得在提示词里要。**与 MiniMax 官方相反，这次没有拦拟似 IP 的图**（同一张参考图在 MiniMax 编辑通道被 422 拒），但国内平台合规审核依然在，不保证以后不拦。"
     }
   ]
 }

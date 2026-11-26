@@ -424,6 +424,7 @@ def simple_preset_info(presets):
 
 
 ENGINE_GROUP = {"http_modelscope": "魔搭在线", "http_minimax": "官方 API",
+                "http_dashscope": "官方 API",
                 "comfyui": "本机 ComfyUI", "host": "宿主工具"}
 
 
