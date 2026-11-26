@@ -95,7 +95,7 @@ class GenerateEndpointTests(unittest.TestCase):
         status, data = self.request("GET", "/api/meta")
         self.assertEqual(status, 200, data)
         meta = data["meta"]
-        self.assertEqual(meta["simple"]["preset_id"], "modelscope-qwen-edit")
+        self.assertEqual(meta["simple"]["preset_id"], "modelscope-qwen-edit-2511")
         self.assertTrue(meta["simple"]["selectable"], meta["simple"])
         self.assertTrue(meta["simple"]["needs_reference"])
         self.assertEqual(meta["sizes"][0]["id"], "1024x1024")
@@ -114,7 +114,7 @@ class GenerateEndpointTests(unittest.TestCase):
         self.assertEqual(brief["prompts_input"]["negative"], "文字，水印")
         self.assertEqual(brief["confirm"]["source"], "web_form")
         self.assertTrue(brief["confirm"]["confirmed"])
-        self.assertEqual(brief["generation"]["preset_id"], "modelscope-qwen-edit")
+        self.assertEqual(brief["generation"]["preset_id"], "modelscope-qwen-edit-2511")
         self.assertTrue(brief["generation"]["egress_consent"])
         self.assertEqual(len(brief["generation"]["reference_images"]), 1)
         prompt = self.load(order, "prompt-input.json")
@@ -169,14 +169,14 @@ class GenerateEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200, data)
         ids = [p["id"] for p in data["presets"]]
         self.assertGreaterEqual(len(ids), 5, ids)
-        self.assertIn("modelscope-qwen-edit", ids)
+        self.assertIn("modelscope-qwen-edit-2511", ids)
 
     def test_models_endpoint(self):
         status, data = self.request("GET", "/api/models")
         self.assertEqual(status, 200, data)
         rows = {m["id"]: m for m in data["models"]}
-        self.assertIn("modelscope-qwen-edit", rows)
-        self.assertTrue(rows["modelscope-qwen-edit"]["selectable"], rows["modelscope-qwen-edit"])
+        self.assertIn("modelscope-qwen-edit-2511", rows)
+        self.assertTrue(rows["modelscope-qwen-edit-2511"]["selectable"], rows["modelscope-qwen-edit-2511"])
         mm = rows.get("modelscope-minimax-h3-image")
         if mm:
             self.assertFalse(mm["caps"]["negative_prompt"])
@@ -188,16 +188,16 @@ class GenerateEndpointTests(unittest.TestCase):
 
     def test_model_with_params_is_recorded(self):
         status, data = self.request("POST", "/api/generate", self.body(
-            name="simple-m", model="modelscope-qwen-edit", steps=28, guidance=4.5, seed=77))
+            name="simple-m", model="modelscope-qwen-edit-2511", steps=28, guidance=4.5, seed=77))
         self.assertEqual(status, 200, data)
         brief = self.load(data["order"], "brief.json")
         gen = brief["generation"]
-        self.assertEqual(gen["preset_id"], "model:modelscope-qwen-edit")
-        self.assertEqual(gen["stages"][0]["backend"], "modelscope-qwen-edit")
+        self.assertEqual(gen["preset_id"], "model:modelscope-qwen-edit-2511")
+        self.assertEqual(gen["stages"][0]["backend"], "modelscope-qwen-edit-2511")
         self.assertEqual(gen["stages"][0].get("steps"), 28)
         self.assertEqual(gen["stages"][0].get("guidance"), 4.5)
         self.assertEqual(gen["seed"], 77)
-        self.assertEqual(brief["ui_settings"]["model"], "modelscope-qwen-edit")
+        self.assertEqual(brief["ui_settings"]["model"], "modelscope-qwen-edit-2511")
 
     def test_unsupported_params_are_dropped(self):
         status, data = self.request("POST", "/api/generate", self.body(

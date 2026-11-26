@@ -173,7 +173,7 @@ protocol 2.6.1 给了皮肤底色的建议区间（色相 12–32°、饱和度 
 
 | 后端 | 负向词 | 步数/CFG | 参考图上限 | 尖括号 `<image 1>` | 语言 |
 |-|-|-|-|-|-|
-| `modelscope-qwen-edit` | 支持 | 支持 | 3 | 不写 | 中文 |
+| `modelscope-qwen-edit-2511` | 支持 | 支持 | 3 | 不写 | 中文 |
 | `modelscope-qwen-edit-2511` | 支持 | 支持 | 3 | 不写 | 中文 |
 | `modelscope-qwen-image-2.1` | 支持 | 支持 | 10 | 不写 | 中文 |
 | `modelscope-minimax-h3-image` | **不支持** | **不支持**（只能用默认值） | 16 | 不写 | 中文 |

@@ -3,7 +3,7 @@
   "port": 8766,
   "open_browser": true,
   "lock_ttl_s": 1800,
-  "default_preset": "modelscope-qwen-edit",
+  "default_preset": "modelscope-qwen-edit-2511",
   "default_model": "modelscope-qwen-image-2.1",
   "image_max_edge": 1536,
   "image_max_bytes": 1048576

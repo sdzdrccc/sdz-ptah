@@ -140,8 +140,8 @@ py -3 -m backends list       # 查看已登记的后端、状态与许可
 
 1. 在 [modelscope.cn/my/myaccesstoken](https://modelscope.cn/my/myaccesstoken) 申请 token（需实名认证并绑定阿里云）。
 2. 设置环境变量（只在本机终端设置，**不要写进任何文件或提交到仓库**）：`$env:MODELSCOPE_TOKEN = "<你的 token>"`。
-3. 检查：`py -3 -m backends probe modelscope-qwen-edit`（不消耗额度）。
-4. 确认时选 `--stages "single:modelscope-qwen-edit@steps=30" --egress-consent`，之后照常运行 `generate.py`。
+3. 检查：`py -3 -m backends probe modelscope-qwen-image-2.1`（不消耗额度）。
+4. 确认时选 `--stages "single:modelscope-qwen-image-2.1@steps=30" --egress-consent`，之后照常运行 `generate.py`。
 
 免费推理服务条款为**非商用**，有动态限流；结果有 seed 但模型版本不固定，标记为不可复现。
 

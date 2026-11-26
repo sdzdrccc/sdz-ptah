@@ -354,65 +354,6 @@
       "note": "从官方 lumina_workflow.json 导出 API 格式后填写 bindings。"
     },
     {
-      "id": "modelscope-qwen-edit",
-      "display_name": "ModelScope 在线 · Qwen-Image-Edit（身份步）",
-      "engine": "http_modelscope",
-      "available": true,
-      "verified": false,
-      "external_reproducible": false,
-      "data_egress": true,
-      "modelscope": {
-        "url": "https://api-inference.modelscope.cn",
-        "model": "Qwen/Qwen-Image-Edit",
-        "image_input": "data_uri",
-        "poll_s": 5,
-        "timeout_s": 600,
-        "min_interval_s": 2
-      },
-      "capabilities": {
-        "seed": true,
-        "negative_prompt": true,
-        "steps": true,
-        "guidance": true,
-        "reference_max": 3,
-        "reference_roles": [
-          "identity",
-          "style",
-          "outfit"
-        ],
-        "batch_max": 1,
-        "sizes": [
-          1024,
-          1328,
-          2048
-        ],
-        "stages": [
-          "single",
-          "identity"
-        ],
-        "prompt_style": "natural_zh",
-        "max_edge": 2048
-      },
-      "secrets": {
-        "token_env": "MODELSCOPE_TOKEN"
-      },
-      "policy": {
-        "retry": 1,
-        "backoff_s": 5,
-        "max_concurrency": 1
-      },
-      "model": {
-        "name": "Qwen/Qwen-Image-Edit",
-        "version": null
-      },
-      "license": {
-        "id": "ModelScope 免费推理服务条款",
-        "commercial_use": false,
-        "notes": "免费推理服务非商用、动态限流；参考图会发往远端，需 egress_consent"
-      },
-      "note": "公开模型列表中可见。适配器已实现，待用真实 token 出图验证；参考图以 base64 data URI 传入，若服务不接受需改方案。API 是否支持网页端的「参考强度」未知，未传。【2026-11-26 实测】带 1 张参考图请求 2048² 真出 2048×2048（RGB 4.48MB，293s），params.size 正确下发、无静默降级；1328/1664 未测，故 sizes 只放到 2048。"
-    },
-    {
       "id": "modelscope-qwen-edit-2511",
       "display_name": "ModelScope 在线 · Qwen-Image-Edit-2511（身份步）",
       "engine": "http_modelscope",

@@ -2,7 +2,7 @@
 
 > 适用对象：能在用户 Windows 电脑上**打开终端执行命令**的智能体（TRAE、Agnes、Claude Code、Codex 等）。
 > 目标：通过魔搭 API-Inference 生成动漫头像，全程不需要用户在魔搭网页上手工上传和填写。
-> 本手册只覆盖 `modelscope-qwen-edit` / `modelscope-qwen-edit-2511` 两个在线后端；通用规则以 `SKILL.md` 为准，两者冲突时以 `SKILL.md` 为准。
+> 本手册只覆盖 `modelscope-qwen-image-2.1`（文生图/编辑）与 `modelscope-qwen-edit-2511`（纯编辑）两个在线后端；通用规则以 `SKILL.md` 为准，两者冲突时以 `SKILL.md` 为准。
 >
 > **提示词不由人手写。** 一律用 `scripts/compile_prompt.py` 现场编译（第 4 节 ③），
 > 规则来源是 `references/protocol.md` §2.6.1 / §2.8 / §2.9。本手册只保留命令，
@@ -61,7 +61,7 @@ $root  = "F:\zxc\Project\sdzdrccc\头像\小智\api-orders"   # 订单根目录�
 ```powershell
 if ($env:MODELSCOPE_TOKEN -or $env:MODELSCOPE_API_KEY -or $env:MODELSCOPE_SDK_TOKEN) { "set" } else { "missing" }
 cd $skill
-py -3 -m backends probe modelscope-qwen-edit
+py -3 -m backends probe modelscope-qwen-edit-2511
 ```
 
 - 期望看到 `"ok": true` 和 `"reachable": true`。
@@ -116,11 +116,11 @@ $order = "$root\<角色slug>"
 py -3 "$skill\scripts\confirm_order.py" --brief "$order\brief.json" `
   --confirm "确认生成" `
   --reference "<参考图路径>" `
-  --stages "single:modelscope-qwen-edit@steps=30" `
+  --stages "single:modelscope-qwen-edit-2511@steps=30" `
   --seed 100 --egress-consent
 ```
 
-- 期望退出码 0，最后一行包含 `stages: single:modelscope-qwen-edit  seed=100  egress_consent=True`。
+- 期望退出码 0，最后一行包含 `stages: single:modelscope-qwen-edit-2511  seed=100  egress_consent=True`。
 - 想用 2511 版本作对比：把后端换成 `modelscope-qwen-edit-2511`。
 - 可调分段参数（写在 `@` 后，用 `;` 分隔）：`steps`、`guidance`、`seed`、`negative`。
 
@@ -140,7 +140,7 @@ py -3 "$skill\scripts\confirm_order.py" --brief "$order\brief.json" `
 py -3 "$skill\scripts\compile_prompt.py" `
   --character "$skill\references\characters\<角色slug>.json" `
   --style "$skill\references\styles\tv-anime-cel.json" `
-  --backend modelscope-qwen-edit `
+  --backend modelscope-qwen-edit-2511 `
   --angle front `
   --identity full `
   --expression "<表情>" --expression-en "<英文对照>" `
@@ -158,7 +158,7 @@ py -3 "$skill\scripts\compile_prompt.py" `
   ```
   prompt_version : <角色>-<风格>-skin-anchor-v1
   prompt_sha256  : <64 位>
-  backend        : modelscope-qwen-edit
+  backend        : modelscope-qwen-edit-2511
   negative_mode  : separate（依据 capabilities.negative_prompt）
   skin_anchor    : base #E9C1AB H21 S27 V91 Lab[...] | shadow ... | cap ...
   ```
@@ -321,7 +321,7 @@ py -3 "$skill\scripts\generate.py" --order $order --resume
 # ModelScope 出图报告 <order_id>
 
 - 时间：<开始–结束>
-- 后端 / 模型：modelscope-qwen-edit / Qwen/Qwen-Image-Edit
+- 后端 / 模型：modelscope-qwen-edit-2511 / Qwen/Qwen-Image-Edit-2511
 - 参数：张数 <n>，seed <seed>，steps <steps>，参考图 <文件名>
 - 各步退出码：确认 <>，预检 <>，生成 <>，评分 <>
 - 产出文件：<列表>
@@ -347,7 +347,7 @@ py -3 "$skill\scripts\generate.py" --order $order --resume
 |-|-|
 | 订单目录 | `F:\zxc\Project\sdzdrccc\头像\小智\api-orders\satoshi` |
 | order_id | `20261124-000312`（`brief.json` 已写好：正脸、1 张、预算 10） |
-| 提示词 | `prompts.compiled.json`（已按第 ③ 步编译：`modelscope-qwen-edit` / `front` / `--identity full` / 表情「闭嘴微笑」，`negative_mode=separate`，底色 `#E9C1AB`、暗部 `#C99A93`、高光上限 `#F2DCCB`）。同目录旧的 `prompts.next.json` 含「暖调小麦色皮肤」，已被审计拦下，**不要用** |
+| 提示词 | `prompts.compiled.json`（已按第 ③ 步编译：`modelscope-qwen-edit-2511` / `front` / `--identity full` / 表情「闭嘴微笑」，`negative_mode=separate`，底色 `#E9C1AB`、暗部 `#C99A93`、高光上限 `#F2DCCB`）。同目录旧的 `prompts.next.json` 含「暖调小麦色皮肤」，已被审计拦下，**不要用** |
 | 参考图 | `F:\zxc\Project\sdzdrccc\头像\小智\refs\参考图.jpg` |
 | 当前进度 | 第 ① ③ 步已完成（提示词已编译，预检已在临时副本验证通过：`errors` 为空、`calls_needed=1`），从第 ② 步「确认」开始；确认前仍需征得用户同意 |
 | 一键脚本 | 同目录 `run.ps1` 按顺序执行 ②④⑤⑥，输出写入 `run-log.txt`。它会在缺 token 时**交互式**要求输入，所以执行智能体不要用它；请按第 4 节逐条执行。**注意 `run.ps1` 第 31/34 行仍指向旧的 `prompts.next.json`（会被审计拒绝），手工跑之前把那两处改成 `prompts.compiled.json`** |
@@ -362,7 +362,7 @@ $order = "F:\zxc\Project\sdzdrccc\头像\小智\api-orders\satoshi"
 py -3 "$skill\scripts\compile_prompt.py" `
   --character "$skill\references\characters\satoshi.json" `
   --style "$skill\references\styles\tv-anime-cel.json" `
-  --backend modelscope-qwen-edit --angle front --identity full `
+  --backend modelscope-qwen-edit-2511 --angle front --identity full `
   --expression "闭嘴微笑" --expression-en "closed-mouth smile" `
   --out "$order\prompts.compiled.json"
 
@@ -370,7 +370,7 @@ py -3 "$skill\scripts\compile_prompt.py" `
 py -3 "$skill\scripts\confirm_order.py" --brief "$order\brief.json" `
   --confirm "确认生成" `
   --reference "F:\zxc\Project\sdzdrccc\头像\小智\refs\参考图.jpg" `
-  --stages "single:modelscope-qwen-edit@steps=30" `
+  --stages "single:modelscope-qwen-edit-2511@steps=30" `
   --seed 100 --egress-consent
 ```
 
@@ -391,7 +391,7 @@ $order = "F:\zxc\Project\sdzdrccc\头像\孙悟空\api-orders\goku"
 py -3 "$skill\scripts\confirm_order.py" --brief "$order\brief.json" `
   --confirm "确认生成" `
   --reference "F:\zxc\Project\sdzdrccc\头像\孙悟空\Image-00-20-06.png" `
-  --stages "single:modelscope-qwen-edit@steps=30" `
+  --stages "single:modelscope-qwen-edit-2511@steps=30" `
   --seed 100 --egress-consent
 ```
 

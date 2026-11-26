@@ -49,11 +49,11 @@
       ]
     },
     {
-      "id": "modelscope-qwen-edit",
-      "label": "魔搭 Qwen Edit · 身份步",
-      "scene": "无本地显卡，用在线 Qwen 做身份步",
+      "id": "modelscope-qwen-edit-2511",
+      "label": "魔搭 Qwen Edit 2511 · 身份步",
+      "scene": "无本地显卡，用在线 Qwen Image Edit 2511 做身份步",
       "stages": [
-        {"stage": "single", "backend": "modelscope-qwen-edit", "params": {"steps": 30}}
+        {"stage": "single", "backend": "modelscope-qwen-edit-2511", "params": {"steps": 30}}
       ],
       "mode": "reference",
       "requires": {

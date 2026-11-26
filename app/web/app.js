@@ -235,7 +235,7 @@ function renderModelArea() {
 function pickModelForScheme(id) {
   const inScheme = state.models.filter((m) => schemeOf(m) === id);
   // 优先用配置里的默认模型（meta.default_model），而不是注册表里排第一的那个；
-  // 否则切回「魔搭在线」会永远落在 modelscope-qwen-edit 上。
+  // 否则切回「魔搭在线」会永远落在注册表第一项上，不跟配置走。
   const wanted = (state.meta || {}).default_model;
   const preferred = wanted && inScheme.find((m) => m.id === wanted && m.selectable);
   return preferred || inScheme.find((m) => m.selectable) || inScheme[0] || null;

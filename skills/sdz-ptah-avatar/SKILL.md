@@ -250,7 +250,7 @@ py -3 "$skill\scripts\confirm_order.py" --brief "<订单目录>\brief.json" `
 - 宿主单段（维护者路线，默认）：不加 `--stages`，后端为 `agnes-aigc-img2img`；
   Agnes 会把参考图发往远端，用户同意后加 `--egress-consent`。
 - ModelScope 在线推理（免网页手工操作；需用户自己在环境变量 `MODELSCOPE_TOKEN` 设好 token）：
-  `--stages "single:modelscope-qwen-edit@steps=30" --egress-consent`，也可用
+  `--stages "single:modelscope-qwen-edit-2511@steps=30" --egress-consent`，也可用
   `modelscope-qwen-edit-2511` 作身份步。参考图会发往魔搭；免费推理服务条款为**非商用**，
   确认页必须说明。token 绝不写进 brief、提示词文件或聊天记录。
   执行智能体请按 `references/modelscope-runbook.md` 逐步操作（含 token 规则、退出码处理、报告模板）。

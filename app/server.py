@@ -31,7 +31,7 @@ DEFAULT_CONFIG = {
     "open_browser": True,
     "orders_root": os.path.join(PROJECT_ROOT, "orders"),
     "skill_root": os.path.join(PROJECT_ROOT, "skills", "sdz-ptah-avatar"),
-    "default_preset": "modelscope-qwen-edit",
+    "default_preset": "modelscope-qwen-edit-2511",
 }
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 DEFAULT_SKIN_SPEC = {
@@ -407,7 +407,7 @@ SIMPLE_BUDGET = 10
 
 def simple_preset_info(presets):
     """极简页用的默认方案摘要：是否可用、不可用原因、是否需要参考图 / 外发同意。"""
-    pid = CONFIG.get("default_preset") or "modelscope-qwen-edit"
+    pid = CONFIG.get("default_preset") or "modelscope-qwen-edit-2511"
     p = next((x for x in presets if x.get("id") == pid), None)
     if p is None:
         return {"preset_id": pid, "label": pid, "selectable": False,
@@ -664,7 +664,7 @@ def simple_generate(payload):
         if not c["use_reference"]:
             c["text2img_consent"] = True
     else:
-        preset_id = c["preset_id"] or CONFIG.get("default_preset") or "modelscope-qwen-edit"
+        preset_id = c["preset_id"] or CONFIG.get("default_preset") or "modelscope-qwen-edit-2511"
         preset_doc, presets = resolve_presets()
         preset = next((p for p in presets if p.get("id") == preset_id), None)
         if preset is None:
