@@ -24,7 +24,10 @@ from backends import registry  # noqa: E402
 
 DEFAULT_PRESETS = os.path.join(SKILL_ROOT, "references", "generation-presets.json")
 STAGE_KEYS = ("denoise", "steps", "guidance", "seed", "negative")
-SUPPORTED_ENGINES = ("host", "comfyui", "http_modelscope", "mock")
+# 不另存一份引擎清单：直接从 registry.ENGINES 派生。
+# 曾经这里硬编码过 ("host", "comfyui", "http_modelscope", "mock")，
+# 新加引擎时忘记同步，网页就会一直报「引擎没有适配器」。
+SUPPORTED_ENGINES = tuple(registry.ENGINES)
 
 
 def load_json(path, fallback=None):

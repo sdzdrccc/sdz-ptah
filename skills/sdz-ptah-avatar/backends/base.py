@@ -127,6 +127,10 @@ class Capabilities:
     denoise_range: Optional[tuple] = None
     batch_max: int = 1
     sizes: tuple = (1024,)
+    # 单边像素上限：由各后端服务端的真实限制决定（ModelScope 网关 2048、
+    # MiniMax 官方 API 面积上限 2000 万像素故可到 4096）。None 表示不额外限制，
+    # 只按 generate.py 的 RENDER_MAX 兜底。超限直接报错，不浪费一次调用。
+    max_edge: Optional[int] = None
     stages: tuple = ("single",)
     prompt_style: str = "natural_zh"   # natural_zh / natural_en / booru_tags
 
@@ -145,6 +149,7 @@ class Capabilities:
             denoise_range=tuple(rng) if rng else None,
             batch_max=int(c.get("batch_max") or 1),
             sizes=tuple(c.get("sizes") or (1024,)),
+            max_edge=int(c["max_edge"]) if c.get("max_edge") else None,
             stages=tuple(c.get("stages") or ("single",)),
             prompt_style=c.get("prompt_style") or "natural_zh",
         )
@@ -221,6 +226,9 @@ class Adapter(ABC):
         if self.egress and req.references and not req.egress_consent:
             errors.append("后端 %s 会把参考图发往远端服务，需 generation.egress_consent=true"
                           % self.id)
+        if self.caps.max_edge and max(req.width, req.height) > self.caps.max_edge:
+            errors.append("尺寸 %dx%d 超过后端 %s 的单边上限 %d（服务端会直接拒绝）"
+                          % (req.width, req.height, self.id, self.caps.max_edge))
         if max(req.width, req.height) not in self.caps.sizes:
             warnings.append("尺寸 %dx%d 不在后端常用尺寸 %s 内"
                             % (req.width, req.height, list(self.caps.sizes)))

@@ -144,9 +144,12 @@ class GenerateRenderSizeTests(unittest.TestCase):
         self.assertEqual(p(None), (1024, 1024))
         self.assertEqual(p("1024x1536"), (1024, 1536))
         self.assertEqual(p("1536×1024"), (1536, 1024))
+        # 上限 4096 的依据：MiniMax 官方 API 面积上限 2000 万像素，4096² 合法。
+        # 魔搭网关只到 2048，由各后端的 capabilities.max_edge 单独把关（见 ②）。
+        self.assertEqual(p("4096x4096"), (4096, 4096))
 
     def test_invalid(self):
-        for bad in ("big", "100x100", "1025x1024", "4096x4096"):
+        for bad in ("big", "100x100", "1025x1024", "8192x8192"):
             with self.assertRaises(ValueError, msg=bad):
                 self.generate.parse_render_size(bad)
 

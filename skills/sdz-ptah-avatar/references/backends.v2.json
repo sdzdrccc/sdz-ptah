@@ -390,7 +390,8 @@
           "single",
           "identity"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -447,7 +448,8 @@
           "single",
           "identity"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -506,7 +508,8 @@
           "single",
           "identity"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -569,7 +572,8 @@
           "single",
           "identity"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -629,7 +633,8 @@
           "single",
           "identity"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -693,7 +698,8 @@
           "single",
           "identity"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -750,7 +756,8 @@
         "stages": [
           "single"
         ],
-        "prompt_style": "natural_zh"
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
       },
       "secrets": {
         "token_env": "MODELSCOPE_TOKEN"
@@ -775,6 +782,128 @@
         "steps": 30,
         "guidance": 4.0
       }
+    },
+    {
+      "id": "minimax-official-h3",
+      "display_name": "MiniMax 官方 API · H3-Image",
+      "engine": "http_minimax",
+      "available": true,
+      "verified": false,
+      "external_reproducible": false,
+      "data_egress": true,
+      "minimax": {
+        "url": "https://api.minimax.cn",
+        "model": "MiniMax-H3-Image",
+        "timeout_s": 600,
+        "response_format": "url",
+        "output_format": "png",
+        "disable_prompt_enhanced": true,
+        "max_area": 20000000
+      },
+      "capabilities": {
+        "seed": false,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 16,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          2048,
+          4096
+        ],
+        "max_edge": 4096,
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MINIMAX_API_KEY"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "MiniMax-H3-Image",
+        "version": "image"
+      },
+      "license": {
+        "id": "MiniMax 开放平台服务条款（按调用计费）",
+        "commercial_use": null,
+        "redistribute_weights": null,
+        "notes": "官方付费 API，商用范围以平台协议为准（本次未逐条核对，商用前须确认）；参考图会发往远端，需 egress_consent"
+      },
+      "note": "2026-11-26 按官方文档登记：https://platform.minimax.cn/docs/guides/image-generation 。同步接口（无 task_id、无需轮询）；面积上限 20,000,000 像素，**4096×4096 合法**，这是与魔搭网关（上限 2048）的关键差别。无 seed / 负向词 / steps / guidance，故可复现恒为 false、负向词会被忽略。参考图 1–16 张，走 /v1/images/edits。默认关掉 Prompt 增强（disable_prompt_enhanced=true），避免编译好的提示词被二次改写。**尚未实测**：需要环境变量 MINIMAX_API_KEY。"
+    },
+    {
+      "id": "minimax-official-h3-highspeed",
+      "display_name": "MiniMax 官方 API · H3-Image 高速版",
+      "engine": "http_minimax",
+      "available": true,
+      "verified": false,
+      "external_reproducible": false,
+      "data_egress": true,
+      "minimax": {
+        "url": "https://api.minimax.cn",
+        "model": "MiniMax-H3-Image-Highspeed",
+        "timeout_s": 600,
+        "response_format": "url",
+        "output_format": "png",
+        "disable_prompt_enhanced": true,
+        "max_area": 20000000
+      },
+      "capabilities": {
+        "seed": false,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 16,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          2048,
+          4096
+        ],
+        "max_edge": 4096,
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MINIMAX_API_KEY"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "MiniMax-H3-Image-Highspeed",
+        "version": "highspeed"
+      },
+      "license": {
+        "id": "MiniMax 开放平台服务条款（按调用计费）",
+        "commercial_use": null,
+        "redistribute_weights": null,
+        "notes": "官方付费 API，商用范围以平台协议为准（本次未逐条核对，商用前须确认）；参考图会发往远端，需 egress_consent"
+      },
+      "note": "2026-11-26 按官方文档登记：高速版参数与限制同 MiniMax-H3-Image，只换 model 字段。**尚未实测**：需要环境变量 MINIMAX_API_KEY。"
     }
   ]
 }

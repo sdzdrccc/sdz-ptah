@@ -423,7 +423,8 @@ def simple_preset_info(presets):
             "verified": bool(policy.get("verified"))}
 
 
-ENGINE_GROUP = {"http_modelscope": "魔搭在线", "comfyui": "本机 ComfyUI", "host": "宿主工具"}
+ENGINE_GROUP = {"http_modelscope": "魔搭在线", "http_minimax": "官方 API",
+                "comfyui": "本机 ComfyUI", "host": "宿主工具"}
 
 
 def registry_backends():

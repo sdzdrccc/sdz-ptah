@@ -136,7 +136,7 @@ function schemeOf(m) {
   return raw.indexOf("魔搭在线") === 0 ? "魔搭在线" : raw;
 }
 
-const SCHEME_ORDER = ["魔搭在线", "本机 ComfyUI", "宿主工具"];
+const SCHEME_ORDER = ["魔搭在线", "官方 API", "本机 ComfyUI", "宿主工具"];
 
 function schemes() {
   const map = new Map();

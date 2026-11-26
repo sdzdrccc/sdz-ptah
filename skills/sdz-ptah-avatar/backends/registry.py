@@ -7,6 +7,7 @@ import os
 from .agent_side import AgentSideAdapter
 from .base import SCHEMA, CapabilityError
 from .comfyui import ComfyUIAdapter
+from .minimax import MiniMaxAdapter
 from .mock import MockAdapter
 from .modelscope import ModelScopeAdapter
 
@@ -15,6 +16,7 @@ ENGINES = {
     "host": AgentSideAdapter,
     "mock": MockAdapter,
     "http_modelscope": ModelScopeAdapter,
+    "http_minimax": MiniMaxAdapter,
 }
 
 # 1.0 条目 id → 2.0 等价规格（保持旧订单可复跑）

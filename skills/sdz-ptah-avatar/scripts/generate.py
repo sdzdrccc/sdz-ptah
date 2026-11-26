@@ -63,12 +63,13 @@ PENDING = "generation-pending.json"
 LOG = "generation.json"
 LOG_SCHEMA = "sdz-generation-log/1.0"
 # 出图画布边长的合法区间（8 的倍数校验另在 parse_render_size 里做）。
-# 上限 2048 是实测出来的，不是猜的：2026-11-26 请求 4096 时服务端直接
-# 拒绝——HTTP 400「width must be integer in [64,2048]」；1328/1664/2048
-# 在 Qwen-Image-2.1 与 MiniMax-H3-Image 上均真出、无降级。
-# 将来若有后端真支持更大，先拿到实测记录再抬这个数。
+# 这里只是全局兜底，**逐后端的真实上限由 backends 的 capabilities.max_edge 把关**
+# （超限在 validate() 直接报错，不浪费一次调用）。
+# 4096 的依据：MiniMax 官方 API 文档写明面积上限 20,000,000 像素，
+# 4096²=1678 万合法；魔搭网关则只到 2048（实测 4096 返回 HTTP 400
+# 「width must be integer in [64,2048]」），故在注册表里给魔搭后端标了 max_edge=2048。
 RENDER_MIN = 512
-RENDER_MAX = 2048
+RENDER_MAX = 4096
 _ANY_NUMBER = re.compile(r"^.+?-avatar-(\d+)(?:-[a-z0-9]+)?\.[A-Za-z0-9]+$", re.I)
 
 
