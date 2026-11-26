@@ -62,6 +62,13 @@ EXIT_INPUT = 2
 PENDING = "generation-pending.json"
 LOG = "generation.json"
 LOG_SCHEMA = "sdz-generation-log/1.0"
+# 出图画布边长的合法区间（8 的倍数校验另在 parse_render_size 里做）。
+# 上限 2048 是实测出来的，不是猜的：2026-11-26 请求 4096 时服务端直接
+# 拒绝——HTTP 400「width must be integer in [64,2048]」；1328/1664/2048
+# 在 Qwen-Image-2.1 与 MiniMax-H3-Image 上均真出、无降级。
+# 将来若有后端真支持更大，先拿到实测记录再抬这个数。
+RENDER_MIN = 512
+RENDER_MAX = 2048
 _ANY_NUMBER = re.compile(r"^.+?-avatar-(\d+)(?:-[a-z0-9]+)?\.[A-Za-z0-9]+$", re.I)
 
 
@@ -187,6 +194,10 @@ def parse_render_size(value):
     """brief.render_size（'1024x1536'）→ (宽, 高)；缺省 1024x1024。
 
     每边 512–2048 且为 8 的倍数，否则 ValueError（退出码 2）。
+    上限 2048 有实测依据：请求 4096 被服务端以 HTTP 400
+    「width must be integer in [64,2048]」拒绝；1024/1328/1664/2048
+    在两个魔搭后端上都真出、无静默降级（2026-11-26 实测）。
+    后端不在其常用尺寸内时只警告不拦截，见 build_plan 的 warnings。
     1K/2K/4K 仍是交付规格，由 avatar_pipeline.py 裁切 / 放大导出，与这里无关。
     """
     if value in (None, ""):
@@ -200,8 +211,9 @@ def parse_render_size(value):
         raw = m.groups()
     w, h = int(raw[0]), int(raw[1])
     for v in (w, h):
-        if v < 512 or v > 2048 or v % 8:
-            raise ValueError("render_size 每边需在 512–2048 之间且为 8 的倍数，收到 %dx%d" % (w, h))
+        if v < RENDER_MIN or v > RENDER_MAX or v % 8:
+            raise ValueError("render_size 每边需在 %d–%d 之间且为 8 的倍数，收到 %dx%d"
+                             % (RENDER_MIN, RENDER_MAX, w, h))
     return w, h
 
 

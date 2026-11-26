@@ -284,7 +284,18 @@ py -3 "$skill\scripts\generate.py" --order $order --resume
 `size`（`1024x1024`）/ `seed` / `steps` / `guidance`（有才发）/ `image_url`（base64 data URI 数组）。
 返回 `task_id` 后每 5 秒 `GET /v1/tasks/{task_id}`、带 `X-ModelScope-Task-Type: image_generation`，
 600 秒超时；超时不自动重提（避免重复扣额度），交 `--resume`。
-画布固定 1024 方图——注册表里的 `1328` 只表示模型可接受，`generate.py` 不传。
+画布尺寸由 `brief.render_size` 决定，`generate.py` 会如实下发（默认 `1024x1024`）。
+
+**2026-11-26 实测更正**：旧版这里写着"画布固定 1024，注册表里的 `1328` 只表示模型可接受、`generate.py` 不传"——**这条已作废**。实测结论：
+
+| 尺寸 | Qwen-Image-2.1 | MiniMax-H3-Image |
+|---|---|---|
+| 1024 / 1328 / 1664 / 2048 | 全部真出，无静默降级 | 全部真出 |
+| 4096 | 未测 | **HTTP 400**：`width must be integer in [64,2048]` |
+
+- 合法区间在 `generate.py` 的 `RENDER_MIN/RENDER_MAX`（512–2048），改之前先拿实测记录。
+- 2048 耗时：Qwen 约 346 s，MiniMax 约 114 s（后者快 3 倍，代价是无负向通道、2 魔粒/次）。
+- 网页端的"自定义尺寸"能填 4096，那是**网页通道**的能力，API 不给，别混用。
 
 ### 6.1 已登记的两个在线生图后端（2026-11-24）
 
