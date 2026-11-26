@@ -533,7 +533,10 @@ label.check input { width: 16px; height: 16px; accent-color: var(--accent); flex
 .mgr-main { display: grid; gap: 6px; min-width: 0; }
 .pick { justify-self: start; background: var(--brand); border-color: var(--brand); color: #fff; padding: 6px 14px; }
 .pick:hover:not(:disabled) { background: var(--brand-600); color: #fff; }
-.mgr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mgr-grid { display: grid; grid-template-columns: 1.15fr 0.85fr 1fr; gap: 8px; align-items: start; }
+/* LoRA 与 Checkpoint 同排：列表与按钮压紧，避免把行高撑起来 */
+.mgr-grid .lora-list { display: grid; gap: 4px; }
+.mgr-grid .lora-add { padding: 5px 8px; font-size: 12px; }
 .slot { display: grid; gap: 4px; }
 .slot-val { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12px; word-break: break-all; min-height: 32px; }
 .slot-val.empty { color: var(--faint); }
