@@ -3070,7 +3070,8 @@ def main():
     ap.add_argument("--order-id", default=None,
                     help="当前订单 id（默认读 brief.order_id > rounds.json 当前订单）")
     ap.add_argument("--brief", default=None, help="brief.json（可选，用于报告头）")
-    ap.add_argument("--formats", default="1024", help="逗号分隔：1024,2k,4k")
+    ap.add_argument("--formats", default="1024,2k,4k",
+                    help="逗号分隔：1024,2k,4k（默认三档全出；只要 1024 请显式传 --formats 1024）")
     ap.add_argument("--jpg", action="store_true", help="额外导出 JPG 压缩版")
     ap.add_argument("--jpg-quality", type=int, default=88, help="JPG 质量（默认 88）")
     ap.add_argument("--style", default=None, help="风格档案 JSON（styles/<style-id>.json）")

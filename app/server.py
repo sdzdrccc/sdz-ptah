@@ -586,6 +586,9 @@ def create_order(payload):
         "count": count,
         "budget": budget,
         "size": "1024",
+        # 网页只负责"生成原图"，不跑 avatar_pipeline.py 的裁切/评分/导出，
+        # 所以这里记的 formats 只是本单意图；真正的交付档由流水线 --formats 决定
+        # （默认 1024,2k,4k，见 CONVENTIONS §8）。
         "formats": ["1024"],
         "channel": channel,
         "channel_source": "server.py:create_order",
@@ -619,6 +622,7 @@ def create_simple_order(name, c):
         "count": c["count"],
         "budget": SIMPLE_BUDGET,
         "size": "1024",
+        # 同上：网页不产出交付档，formats 仅为意图记录。
         "formats": ["1024"],
         "render_size": "%dx%d" % (c["width"], c["height"]),
         "channel": c["channel"],
