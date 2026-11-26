@@ -415,7 +415,7 @@
       "display_name": "ModelScope 在线 · Qwen-Image-Edit-2511（身份步）",
       "engine": "http_modelscope",
       "available": true,
-      "verified": false,
+      "verified": true,
       "external_reproducible": false,
       "data_egress": true,
       "modelscope": {
@@ -423,7 +423,7 @@
         "model": "Qwen/Qwen-Image-Edit-2511",
         "image_input": "data_uri",
         "poll_s": 5,
-        "timeout_s": 600,
+        "timeout_s": 900,
         "min_interval_s": 2
       },
       "capabilities": {
@@ -465,7 +465,7 @@
         "commercial_use": false,
         "notes": "免费推理服务非商用、动态限流；参考图会发往远端，需 egress_consent"
       },
-      "note": "不在公开列表中，但有第三方通过 API 调用成功的记录；待用真实 token 验证。权重为 Apache-2.0，与本地默认路线同一模型，可用于在线 A/B。"
+      "note": "不在公开列表中，但有第三方通过 API 调用成功的记录；待用真实 token 验证。权重为 Apache-2.0，与本地默认路线同一模型，可用于在线 A/B。【2026-11-26 实测】1024² 真出（RGB 0.69MB），带 1 张参考图（data_uri）。**首次提交 600s 超时未返回，用 --resume 续跑 2.5 分钟后取回**，故 timeout_s 由 600 提到 900。质量：服装配色最准（蓝外套/白领/绿背带/黄纽扣全对）、黑色尖刺发、脸颊闪电纹、无睫毛、画风接近早期 TV 动画；问题：**把参考图里的皮卡丘与蓝天实景背景一起搬进来**（编辑模型是「改图」不是「重画」，参考图里有什么就继承什么）、脸型偏成人、帽徽仍是绿弧、背景非纯色平涂。⇒ 用这个后端必须换一张「只有角色、无第二角色、纯色背景」的参考图。"
     },
     {
       "id": "modelscope-qwen-image-2.1",
