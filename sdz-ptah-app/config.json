@@ -7,6 +7,6 @@
   "default_model": "modelscope-qwen-edit",
   "image_max_edge": 1536,
   "image_max_bytes": 1048576,
-  "orders_root": "F:/zxc/Project/sdz-ptah/avatar-orders",
+  "orders_root": "F:/zxc/Project/sdz-ptah/orders",
   "skill_root": "F:/zxc/Project/sdz-ptah/skills/sdz-ptah-avatar"
 }

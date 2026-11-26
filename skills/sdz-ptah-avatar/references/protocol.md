@@ -1196,7 +1196,7 @@ flat 布局不单独导出 `native` 母版（它是裁切中间量，不落盘�
 **一个角色一个目录**，层级压到最少。目录名默认取角色 slug（如 `satoshi/`），
 由 `rounds.py --new-order --root <根> --character <id>` 复用/创建，只切换
 `order_id`（`YYYYMMDD-HHMMSS`）；不再有 `-01`/`-02` 序号，也不再新建第二层。
-订单根目录由用户指定，未指定时用 `<当前工作区>/avatar-orders/`：
+订单根目录由用户指定，未指定时用 `<当前工作区>/orders/`：
 
 ```
 <订单根目录>/satoshi/

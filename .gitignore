@@ -10,7 +10,7 @@ __pycache__/
 .workbuddy/
 
 # 运行时订单数据：含生成图与逐单台账，运行时产生，不入库
-avatar-orders/
+orders/
 
 # 本地上传缓存：网页控制台的参考图上传，运行时产生，不入库
 sdz-ptah-app/uploads/
@@ -27,3 +27,6 @@ design/baselines/
 # 生成的验证输出：体积大（单轮约 35 MB）且可由 avatar_pipeline.py 完整复现
 # 统一命名 out-<变体>，见 CONVENTIONS.md
 design/verify/out-*/
+
+# 临时提交信息文件
+.git-commit-msg.tmp

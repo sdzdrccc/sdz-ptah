@@ -2,7 +2,7 @@
 """端到端验证：中文角色名可以真实建单。
 
 覆盖 safe_name 修复的实际目的——不再在 create_order 处抛 ValueError。
-全部读写都重定向到临时目录，不触碰仓库里的 avatar-orders / custom。
+全部读写都重定向到临时目录，不触碰仓库里的 orders / custom。
 
 运行：
     py -3 -m unittest discover -s tests -v

@@ -14,7 +14,7 @@
 | `sdz-ptah-app/` | 本地 Web 控制台（服务 + 前端 + 测试） | 部分 |
 | `design/` | 方案 / 评审 / 验证 / 校准基准（知识资产） | 部分 |
 | `docs/` | 项目级规范文档与变更记录 | 是 |
-| `avatar-orders/` | 运行时订单数据（图片 + 台账） | **否** |
+| `orders/` | 运行时订单数据（图片 + 台账） | **否** |
 
 **规则**：顶层只用「小写英文 + 连字符」；不新增中文顶层目录。2026-11-26 已按此规整：原 `ai-anime-avatar/` → `design/`、原 `基准/` → `design/baselines/`、废弃的 `architecture/` 与空目录 `.trae/`、`.screenshots/` 已删除、规范文档收进 `docs/`。
 
@@ -47,7 +47,7 @@
 - 命名：`<原名>.bak-<原因>`（现状合规），如 `server.py.bak-before-no-web-prompt-check`。
 - 存放：统一归档到 `archive/backups/`，按日期子目录 `YYYY-MM-DD/`。
 - 生命周期：变更稳定后 7 天内确认保留或删除；删除前对比无差异再动。
-- **当前偏差**：12 个 `.bak-*` 散落在 `skills/`、`sdz-ptah-app/`、`avatar-orders/`（详见整改清单 B1）。
+- **当前偏差**：12 个 `.bak-*` 散落在 `skills/`、`sdz-ptah-app/`、`orders/`（详见整改清单 B1）。
 
 ---
 
@@ -82,7 +82,7 @@
 ## 7. 整改清单（按风险分级）
 
 ### A 档 · 零风险（可直接做）
-- A1 `.gitignore` 补 `avatar-orders/`、`sdz-ptah-app/uploads/`、`*.bak-*`、`.workbuddy/`、诊断输出 txt。
+- A1 `.gitignore` 补 `orders/`、`sdz-ptah-app/uploads/`、`*.bak-*`、`.workbuddy/`、诊断输出 txt。
 - A2 本文落盘为项目规范基线。
 
 ### B 档 · 低风险（移动 + 轻量回写）— ✅ 已完成 2026-11-26
@@ -106,3 +106,16 @@
 - D2 顶层改名：`ai-anime-avatar/` → `design/`（已执行，15 处引用回写）。
 - 附带：废弃的 `architecture/draft/api_design.md`（自带"已被取代"警告）与空目录 `.trae/`、`.screenshots/` 已删除；`CONVENTIONS.md`、`CHANGELOG-命名整理.md` 收进 `docs/`。
 - 本节为历史记录；当前目录状态以第 1 节表格为准。
+
+### 后续：订单目录改名（2026-11-26）
+- `avatar-orders/` → `orders/`（已执行）。理由：与代码自身词汇对齐——配置项 `orders_root`、路由 `/api/orders`、`orderlock.py`、`create_simple_order` 全部用 `order(s)`，目录名跟代码同名，少一层心智翻译；且更短，符合"紧凑"。
+- 影响面：该目录 **0 个文件入库**（`orders/` 在 `.gitignore`），改名是纯本地 `mv`，无 git 历史牵连，随时可 `mv` 回滚。
+- 回写：`sdz-ptah-app/config.json`（绝对路径）、`sdz-ptah-app/server.py`（`DEFAULT_CONFIG.orders_root`）、`.gitignore`、README（含 8 处示例路径与目录树）、`skills/.../SKILL.md`、`references/protocol.md`、`design/outputs/` 方案正文、5 个诊断脚本默认路径、2 个测试夹具注释/路径。
+- `orders/avatar/generation.json` 内的绝对 `path` 字段同步改写：该字段是产物指针，改名后旧值不可解析；seed / sha256 / prompt 等生成事实一律未动。`.workbuddy/memory/` 日志按 append-only 规则保留旧名，不回改。
+
+### 后续：角色占位名归真（2026-11-26）
+- 现象：订单目录里出现 `orders/avatar/`，且文件名是 `avatar-avatar-1.png`——`avatar` 是建单时角色名缺省的**兜底值**，不是设计上多一层。按「一个角色一个目录」，这一层是角色目录，不能删层级，只能改名。
+- 处置：`orders/avatar/` → `orders/satoshi/`（角色即 `references/characters/satoshi.json`，形象与产物一致）；产物前缀 `avatar-avatar-*` / `avatar-ref-*` → `satoshi-avatar-*` / `satoshi-ref-*`；`brief.character` / `character_id`、`manifest.meta.order_dir` 同步为 `satoshi`。
+- 未动：`sdz-ptah-app/uploads/avatar-upload-*.jpg`（原始上传，非本次范围）、`sdz-ptah-avatar`（技能名）、`anime-avatar/`（工具标识）。
+- 校验：11 个 json 全部可解析；ledger 引用的 17 个文件名全部存在；119 项测试 OK；`diag_01` 读图正常。
+- 教训：正则 `[\\/]+` 贪婪匹配双反斜杠会漏掉一个，导致 JSON 出现非法转义。**批量改路径后必须逐个 `json.load` 复验**，不能只看替换计数。

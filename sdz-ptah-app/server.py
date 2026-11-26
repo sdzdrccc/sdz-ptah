@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8765,
     "open_browser": True,
-    "orders_root": os.path.join(PROJECT_ROOT, "avatar-orders"),
+    "orders_root": os.path.join(PROJECT_ROOT, "orders"),
     "skill_root": os.path.join(PROJECT_ROOT, "skills", "sdz-ptah-avatar"),
     "default_preset": "modelscope-qwen-edit",
 }

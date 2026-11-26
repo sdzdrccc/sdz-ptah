@@ -27,7 +27,7 @@ class LastJsonTests(unittest.TestCase):
     def test_multiline_indented(self):
         """echo() 的实际格式：多行、两空格缩进。"""
         payload = {
-            "order_dir": "F:/x/avatar-orders/小雪",
+            "order_dir": "F:/x/orders/小雪",
             "name": "小雪",
             "order_id": "20261125-120000",
             "brief": "brief.json",

@@ -160,7 +160,7 @@ description: Generate anime avatars from a style profile + character card + angl
 - 订单目录名默认角色 slug：`rounds.py --new-order --root <根> --character satoshi`
   复用 `<根>/satoshi`，只切换订单；不再加时间戳或序号。
 - **不再按角度拆订单目录**：角度只写在 `brief.json` / `manifest.json` 里。
-- 订单根目录：用户指定优先；未指定用 `<当前工作区>/avatar-orders/`。
+- 订单根目录：用户指定优先；未指定用 `<当前工作区>/orders/`。
 - `%TEMP%`、`/tmp` 只能做生成中转：生成后立刻 `Move` 到订单目录，再跑评分。
 - 中断或失败：把已生成图留在订单目录，`status.json` 写 `interrupted` / `failed`
   并记录 `phase`、`raw_count`、`last_error`；不得回滚或清理。

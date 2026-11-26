@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, r"F:\zxc\Project\sdz-ptah\skills\sdz-ptah-avatar\scripts")
 import avatar_pipeline as ap
 from PIL import Image
-IMG = r"F:\zxc\Project\sdz-ptah\avatar-orders\avatar\avatar-avatar-1-src.png"
+IMG = r"F:\zxc\Project\sdz-ptah\orders\satoshi\satoshi-avatar-1-src.png"
 img = Image.open(IMG).convert("RGB")
 W, H = img.size
 work_w = 480; cell = 4; ratio = 0.25

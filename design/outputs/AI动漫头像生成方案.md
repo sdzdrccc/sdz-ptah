@@ -691,7 +691,7 @@ f:\zxc\Project\sdz-ptah\
 │       ├── styles\tv-anime-cel.json / realistic-armor.json
 │       └── characters\satoshi.json / fox-armor.json   # 第三方 IP 示例，公开前替换（10.1）
 └── 订单目录（宿主侧，不入库）
-    └── <角色>\avatar-orders\<order_id>\
+    └── <角色>\orders\<order_id>\
         ├── brief.json / rounds.json / status.json / generation.json
         ├── <prefix>-ref-N.png          # 参考图（平铺，不入库）
         ├── <prefix>-avatar-N-src.png   # 生成原图

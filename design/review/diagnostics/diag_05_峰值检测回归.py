@@ -9,7 +9,7 @@ sys.path.insert(0, SCRIPTS)
 from PIL import Image
 import avatar_pipeline as new_ap
 
-IMG = r"F:\zxc\Project\sdz-ptah\avatar-orders\avatar\avatar-avatar-1-src.png"
+IMG = r"F:\zxc\Project\sdz-ptah\orders\satoshi\satoshi-avatar-1-src.png"
 img = Image.open(IMG).convert("RGB")
 peaks, sc, pw, ph = new_ap._peak_eye_candidates(img)
 print("== 峰值候选（改后新增，工作图坐标）==")
@@ -51,7 +51,7 @@ print("改后:", run(new_ap, IMG))
 
 print("== 已通过样本：改前 vs 改后 是否一致 ==")
 samples = []
-ord_dir = r"F:\zxc\Project\sdz-ptah\avatar-orders"
+ord_dir = r"F:\zxc\Project\sdz-ptah\orders"
 for root, ds, fs in os.walk(ord_dir):
     for f in fs:
         if f.lower().endswith("-src.png") or f.lower().endswith("-avatar-1.png"):

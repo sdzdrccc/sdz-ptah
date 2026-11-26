@@ -118,31 +118,31 @@ py -3 -m backends list       # 查看已登记的后端、状态与许可
 $skill = "skills\sdz-ptah-avatar"
 
 # ① 新建 / 切换订单：目录固定为 <订单根>\<角色 slug>，输出里有 order_id
-py -3 "$skill\scripts\rounds.py" --new-order --root "D:\avatar-orders" --character mychar
+py -3 "$skill\scripts\rounds.py" --new-order --root "D:\orders" --character mychar
 
 # ② 写 brief.json（宿主智能体会自动写；最小示例）
 #    {"order_id": "<上一步的 order_id>", "character_id": "mychar", "gender": "female",
 #     "count": 2, "budget": 10, "style_id": "tv-anime-cel"}
 
 # ③ 确认（未确认一律不生成）
-py -3 "$skill\scripts\confirm_order.py" --brief "D:\avatar-orders\mychar\brief.json" `
+py -3 "$skill\scripts\confirm_order.py" --brief "D:\orders\mychar\brief.json" `
   --confirm "确认生成" --reference "D:\refs\mychar.png" `
   --stages "identity:agnes-aigc-img2img,style:comfyui-animagine-i2i@denoise=0.35" `
   --seed 100 --egress-consent
 
 # ④ 生成：先预检，再出图
-py -3 "$skill\scripts\generate.py" --order "D:\avatar-orders\mychar" `
+py -3 "$skill\scripts\generate.py" --order "D:\orders\mychar" `
   --prompt-zh "<中文段>" --prompt-en "<英文段 / Danbooru tag，含 safe>" --dry-run
-py -3 "$skill\scripts\generate.py" --order "D:\avatar-orders\mychar" `
+py -3 "$skill\scripts\generate.py" --order "D:\orders\mychar" `
   --prompt-zh "<中文段>" --prompt-en "<英文段>"
 
 # ⑤ 裁切、评分、导出
-py -3 "$skill\scripts\avatar_pipeline.py" --raw "D:\avatar-orders\mychar" `
-  --brief "D:\avatar-orders\mychar\brief.json" --formats 1024 `
+py -3 "$skill\scripts\avatar_pipeline.py" --raw "D:\orders\mychar" `
+  --brief "D:\orders\mychar\brief.json" --formats 1024 `
   --style "$skill\references\styles\tv-anime-cel.json" --budget 10
 
 # ⑥ 交付后回填满意度
-py -3 "$skill\scripts\rounds.py" --order "D:\avatar-orders\mychar" `
+py -3 "$skill\scripts\rounds.py" --order "D:\orders\mychar" `
   --set-satisfaction --round 1 --satisfaction satisfied
 ```
 
@@ -159,7 +159,7 @@ py -3 "$skill\scripts\rounds.py" --order "D:\avatar-orders\mychar" `
 
 ## 订单目录与产物
 
-订单目录默认 `<工作区>/avatar-orders/<角色 slug>/`，**一个角色一个目录**，图片全部平铺、不建子目录，运行期产物不入库：
+订单目录默认 `<工作区>/orders/<角色 slug>/`，**一个角色一个目录**，图片全部平铺、不建子目录，运行期产物不入库：
 
 | 文件 | 说明 |
 |-|-|
@@ -222,7 +222,7 @@ sdz-ptah/
 │   ├── probe/                         # 生成端能力探针（公开前清理，见路线图 M0-1）
 │   ├── baselines/                     # 阈值校准基准（gitignore，含正样本/风格参考）
 │   └── verify/                        # 验证样本；输出目录统一 out-<变体>（gitignore）
-└── avatar-orders/                     # 运行时订单数据（gitignore）
+└── orders/                            # 运行时订单数据（gitignore）
 ```
 
 > 标注 gitignore 的目录为运行时产物，不入库；`.workbuddy/`（工作日志）与 `.trae/`（宿主配置）同样不入库，未在树中列出。
