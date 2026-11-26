@@ -14,6 +14,12 @@
   <span class="pill warn">免费推理 · 非商用</span>
 </header>
 
+<nav id="viewNav" class="view-nav" aria-label="工作区视图">
+  <button type="button" class="active" data-view="work" aria-pressed="true">创作</button>
+  <button type="button" data-view="result" aria-pressed="false">结果</button>
+  <button type="button" data-view="history" aria-pressed="false">历史</button>
+</nav>
+
 <main class="layout">
   <!-- 左：历史 -->
   <aside id="historyCard" class="col hist">
@@ -44,7 +50,7 @@
             <div id="ckptCoverFallback" class="cover-fallback">无模型</div>
           </div>
           <div class="mgr-main">
-            <span class="small">可选择 Checkpoint、VAE、LoRA；方案与模型在弹窗里选</span>
+            <span class="small">选择用于本次生成的模型；仅展示实际支持的参数</span>
             <p id="modelCaps" class="small"></p>
             <ul id="modelReasons" class="reasons" hidden></ul>
             <div class="mgr-grid">
@@ -52,11 +58,11 @@
                 <span class="lbl">Checkpoint</span>
                 <div id="ckptSlot" class="slot-val">未选择</div>
               </div>
-              <div class="slot">
+              <div class="slot unimplemented" hidden>
                 <span class="lbl">VAE</span>
                 <div id="vaeSlot" class="slot-val">使用模型自带 VAE</div>
               </div>
-              <div class="slot">
+              <div class="slot unimplemented" hidden>
                 <span class="lbl">LoRA</span>
                 <div id="loraList" class="lora-list"></div>
                 <button id="addLoraBtn" class="lora-add" type="button">＋ 添加 LoRA</button>
@@ -90,29 +96,6 @@
         <div class="params">
           <div class="pcol">
             <div class="f">
-              <span class="lbl">随机种子 <span class="en">Seed</span></span>
-              <div class="inline">
-                <input id="seedInput" type="number" value="-1" min="-1" step="1">
-                <button id="seedDice" class="icon" type="button" title="随机一个种子">⟳</button>
-                <button id="seedReset" class="icon" type="button" title="改回 -1">-1</button>
-              </div>
-              <span id="seedNote" class="small"></span>
-            </div>
-
-            <div id="guidanceRow" class="f">
-              <span class="lbl">提示词引导系数 <span class="en">CFG</span>
-                <input id="guidanceInput" class="num" type="number" min="0" max="20" step="0.5"></span>
-              <input id="guidanceRange" type="range" min="0" max="20" step="0.5">
-            </div>
-
-            <div id="stepsRow" class="f">
-              <span class="lbl">采样步数 <span class="en">Steps</span>
-                <input id="stepsInput" class="num" type="number" min="1" max="100" step="1"></span>
-              <input id="stepsRange" type="range" min="1" max="100" step="1">
-            </div>
-            <p id="paramNote" class="small" hidden></p>
-
-            <div class="f">
               <span class="lbl">生成数量 <span class="en">Number</span></span>
               <div id="countSeg" class="seg wide" role="radiogroup" aria-label="数量"></div>
             </div>
@@ -129,10 +112,13 @@
             </div>
             <div id="sizePreset">
               <div class="ratio-side">
-                  <div id="sizeText" class="size-text">1024×1024</div>
-                  <div id="ratioSeg" class="seg" role="radiogroup" aria-label="画幅"></div>
-                  <span class="lbl sub">长边</span>
-                  <div id="edgeSeg" class="seg" role="radiogroup" aria-label="长边"></div>
+                  <div id="sizeText" class="size-text">2048*2048</div>
+                  <div class="seg ratio-tabs" role="group" aria-label="画幅方向">
+                    <button type="button" data-orient="portrait">纵向</button>
+                    <button type="button" data-orient="square" class="active">正方形</button>
+                    <button type="button" data-orient="landscape">横向</button>
+                  </div>
+                  <input id="ratioRange" class="ratio-range" type="range" min="0" max="8" step="1" value="4" aria-label="画幅比例">
               </div>
             </div>
             <div id="sizeCustom" hidden>
@@ -149,6 +135,35 @@
             </label>
           </div>
         </div>
+        <details id="advancedSettings" class="advanced-settings">
+          <summary>高级设置 <span class="small">随机种子 · 采样参数</span></summary>
+          <div class="advanced-grid">
+            <div class="f">
+              <label class="lbl" for="seedInput">随机种子 <span class="en">Seed</span></label>
+              <div class="inline">
+                <input id="seedInput" type="number" value="-1" min="-1" step="1">
+                <button id="seedDice" class="icon" type="button" title="随机一个种子">⟳</button>
+                <button id="seedReset" class="icon" type="button" title="改回 -1">-1</button>
+              </div>
+              <span id="seedNote" class="small"></span>
+            </div>
+            <div id="guidanceRow" class="f">
+              <span class="lbl">提示词引导系数 <span class="en">CFG</span>
+                <input id="guidanceInput" class="num" type="number" min="0" max="20" step="0.5"></span>
+              <input id="guidanceRange" type="range" min="0" max="20" step="0.5">
+            </div>
+            <div id="stepsRow" class="f">
+              <span class="lbl">采样步数 <span class="en">Steps</span>
+                <input id="stepsInput" class="num" type="number" min="1" max="100" step="1"></span>
+              <input id="stepsRange" type="range" min="1" max="100" step="1">
+            </div>
+            <div class="f edge-field">
+              <span class="lbl">长边 <span class="en">Long edge</span></span>
+              <div id="edgeSeg" class="seg wide" role="radiogroup" aria-label="长边"></div>
+            </div>
+          </div>
+          <p id="paramNote" class="small" hidden></p>
+        </details>
       </div>
 
       <div class="block">
@@ -213,8 +228,8 @@
       <div class="dlg-left">
         <div class="dlg-tabs" role="tablist">
           <button type="button" class="tab active" data-kind="checkpoint">Checkpoint</button>
-          <button type="button" class="tab" data-kind="vae">VAE</button>
-          <button type="button" class="tab" data-kind="lora">LoRA</button>
+          <button type="button" class="tab" data-kind="vae" hidden>VAE</button>
+          <button type="button" class="tab" data-kind="lora" hidden>LoRA</button>
         </div>
         <div class="dlg-filter">
           <select id="dlgScheme" aria-label="方案"></select>

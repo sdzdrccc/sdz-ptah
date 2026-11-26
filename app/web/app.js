@@ -9,8 +9,9 @@ const state = {
   dlgKind: "checkpoint",
   dlgDraft: null,
   presets: [],
-  ratio: "1:1",
-  longEdge: 1024,
+  orient: "square",
+  ratioPos: 4,
+  longEdge: 2048,
   sizeMode: "preset",
   count: 1,
   useRef: true,
@@ -23,6 +24,7 @@ const state = {
   timer: null,
   started: 0,
   logged: false,
+  view: "work",
 };
 
 const MAX_PROMPT = 4000;
@@ -335,13 +337,22 @@ function round8(v) {
   return Math.max(512, Math.min(2048, Math.round(v / 8) * 8));
 }
 
+// 滑杆每一格对应一个固定比例：0-3 纵向，4 正方形，5-8 横向。
+// 方向按钮决定滑杆的可移动区间，避免拖到与方向相反的比例。
+const RATIO_STOPS = [[9, 16], [2, 3], [3, 4], [4, 5], [1, 1], [5, 4], [4, 3], [3, 2], [16, 9]];
+const ORIENT_RANGE = { portrait: [0, 3], square: [4, 4], landscape: [5, 8] };
+
+function ratioStop() {
+  return RATIO_STOPS[state.ratioPos] || [1, 1];
+}
+
 function currentSize() {
   if (state.sizeMode === "custom") {
     return [round8(Number($("customW").value) || 1024), round8(Number($("customH").value) || 1024)];
   }
-  const r = ((state.meta || {}).ratios || []).find((x) => x.id === state.ratio) || { w: 1, h: 1 };
   const L = state.longEdge;
-  return r.w >= r.h ? [round8(L), round8(L * r.h / r.w)] : [round8(L * r.w / r.h), round8(L)];
+  const [rw, rh] = ratioStop();
+  return rw >= rh ? [round8(L), round8(L * rh / rw)] : [round8(L * rw / rh), round8(L)];
 }
 
 function renderParams() {
@@ -377,25 +388,34 @@ function renderSize() {
   $("sizeTabCustom").classList.toggle("active", !preset);
   $("sizePreset").hidden = !preset;
   $("sizeCustom").hidden = preset;
+  if (!preset) $("advancedSettings").open = true;
 
   const verified = m.verified_sizes || ["1024x1024"];
-  $("ratioSeg").innerHTML = (m.ratios || []).map((r) => `
-    <button type="button" data-ratio="${esc(r.id)}" class="${r.id === state.ratio ? "active" : ""}"
-      role="radio" aria-checked="${r.id === state.ratio}" title="${esc(r.label)}">${esc(r.id)}</button>`).join("");
+  document.querySelectorAll("[data-orient]").forEach((b) => {
+    const on = b.dataset.orient === state.orient;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+  const [rMin, rMax] = ORIENT_RANGE[state.orient] || [0, 8];
+  const range = $("ratioRange");
+  range.min = rMin;
+  range.max = rMax;
+  range.value = state.ratioPos;
+  range.disabled = rMin === rMax;
   const edges = (caps().sizes && caps().sizes.length) ? caps().sizes : [1024];
   $("edgeSeg").innerHTML = edges.map((e) => `
     <button type="button" data-edge="${e}" class="${e === state.longEdge ? "active" : ""}"
       role="radio" aria-checked="${e === state.longEdge}">${e}</button>`).join("");
 
   const [w, h] = currentSize();
-  const r = (m.ratios || []).find((x) => x.id === state.ratio) || { w: 1, h: 1 };
   const box = 96;
-  const sw = r.w >= r.h ? box : Math.round(box * r.w / r.h);
-  const sh = r.w >= r.h ? Math.round(box * r.h / r.w) : box;
+  const sw = w >= h ? box : Math.round(box * w / h);
+  const sh = w >= h ? Math.round(box * h / w) : box;
   $("ratioShape").style.width = `${sw}px`;
   $("ratioShape").style.height = `${sh}px`;
-  $("ratioText").textContent = state.ratio;
-  $("sizeText").textContent = `${w}×${h}`;
+  const [stopW, stopH] = ratioStop();
+  $("ratioText").textContent = `${stopW}:${stopH}`;
+  $("sizeText").textContent = `${w}*${h}`;
   const id = `${w}x${h}`;
   const inCaps = edges.includes(Math.max(w, h));
   $("sizeNote").textContent = verified.includes(id)
@@ -455,10 +475,25 @@ function renderAll() {
   renderCounters();
 }
 
-// ---------------------------------------------------------------- 顶栏 / 参考图
+// ---------------------------------------------------------------- 页面视图 / 顶栏 / 参考图
+function setView(view) {
+  if (!["work", "result", "history"].includes(view)) return;
+  state.view = view;
+  document.body.dataset.view = view;
+  document.querySelectorAll("#viewNav [data-view]").forEach((btn) => {
+    const active = btn.dataset.view === view;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
+  if (window.matchMedia("(max-width: 1199px)").matches) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
 function renderMeta() {
   const m = state.meta || {};
-  $("metaLine").textContent = `订单目录 ${m.orders_root || "-"}`;
+  $("metaLine").textContent = "本地创作空间";
+  $("metaLine").title = `订单目录 ${m.orders_root || "-"}`;
   const pill = $("tokenPill");
   pill.className = `pill ${m.modelscope_token_set ? "ok" : "bad"}`;
   pill.textContent = m.modelscope_token_set ? "魔搭 token 已设置" : "未检测到魔搭 token";
@@ -490,6 +525,7 @@ function defaultName() {
 }
 
 function resetForm() {
+  setView("work");
   state.current = null;
   state.detail = null;
   $("nameInput").value = defaultName();
@@ -498,7 +534,9 @@ function resetForm() {
   $("seedInput").value = -1;
   $("egressConsent").checked = false;
   state.count = 1;
-  state.ratio = "1:1";
+  state.orient = "square";
+  state.ratioPos = 4;
+  state.longEdge = 2048;
   state.sizeMode = "preset";
   state.useRef = !!caps().reference_max;
   applyModelDefaults();
@@ -537,15 +575,23 @@ function sizeFromRender(text) {
   const w = +m[1];
   const h = +m[2];
   const L = Math.max(w, h);
-  const ratios = (state.meta || {}).ratios || [];
-  const hit = ratios.find((r) => {
-    const sw = r.w >= r.h ? round8(L) : round8(L * r.w / r.h);
-    const sh = r.w >= r.h ? round8(L * r.h / r.w) : round8(L);
-    return sw === w && sh === h;
-  });
-  if (hit && (caps().sizes || [1024]).includes(L)) {
+  if ((caps().sizes || [1024]).includes(L) && w >= 512 && h >= 512) {
     state.sizeMode = "preset";
-    state.ratio = hit.id;
+    let hit = -1;
+    for (let i = 0; i < RATIO_STOPS.length; i++) {
+      const [rw, rh] = RATIO_STOPS[i];
+      const sw = rw >= rh ? round8(L) : round8(L * rw / rh);
+      const sh = rw >= rh ? round8(L * rh / rw) : round8(L);
+      if (sw === w && sh === h) { hit = i; break; }
+    }
+    if (hit < 0) {
+      state.sizeMode = "custom";
+      $("customW").value = w;
+      $("customH").value = h;
+      return;
+    }
+    state.ratioPos = hit;
+    state.orient = hit <= 3 ? "portrait" : hit === 4 ? "square" : "landscape";
     state.longEdge = L;
   } else {
     state.sizeMode = "custom";
@@ -601,6 +647,7 @@ async function selectOrder(name, opts = {}) {
   state.detail = res.detail;
   if (!opts.keepForm) await fillFormFromOrder(res.detail);
   renderDetail();
+  if (opts.showResult) setView("result");
 }
 
 // ---------------------------------------------------------------- 结果
@@ -633,12 +680,25 @@ function renderDetail() {
     <span>${esc(modelLabel(backend))} · ${esc(b.render_size || "1024x1024")}${esc(seed)}</span>`;
 
   const files = (d.files || []).filter((f) => isResultImage(f.name));
-  $("gallery").innerHTML = files.length ? files.map((f) => {
+  const grouped = { final: [], source: [], other: [] };
+  for (const f of files) {
+    if (/-avatar-\d+-src\.(png|jpe?g|webp)$/i.test(f.name)) grouped.source.push(f);
+    else if (/-avatar-\d+(?:-(?:2k|4k))?\.(png|jpe?g|webp)$/i.test(f.name)
+      || /-avatar-\d+-q\d+\.jpe?g$/i.test(f.name)) grouped.final.push(f);
+    else grouped.other.push(f);
+  }
+  const labels = { final: "生成成品", source: "生成原图", other: "其他图片" };
+  const galleryCard = (f) => {
     const url = `/api/orders/${enc(state.current)}/file/${enc(f.name)}`;
-    return `<figure><a href="${url}" target="_blank" rel="noopener" title="新窗口查看原图">
+    return `<figure><a href="${url}" target="_blank" rel="noopener" title="查看完整图片">
       <img src="${url}" alt="${esc(f.name)}" loading="lazy"></a>
-      <figcaption>${esc(f.name)}</figcaption></figure>`;
-  }).join("") : '<p class="empty">这个订单还没有生成图片</p>';
+      <figcaption><span>${esc(f.name)}</span><a href="${url}" target="_blank" rel="noopener" aria-label="查看 ${esc(f.name)}">查看</a></figcaption></figure>`;
+  };
+  $("gallery").innerHTML = files.length ? ["final", "source", "other"]
+    .filter((kind) => grouped[kind].length)
+    .map((kind) => `<section class="gallery-group"><h3>${labels[kind]} · ${grouped[kind].length}</h3>
+      <div class="gallery">${grouped[kind].map(galleryCard).join("")}</div></section>`).join("")
+    : '<p class="empty">这个订单还没有生成图片</p>';
 
   const refs = gen.reference_images || [];
   const pi = b.prompts_input || {};
@@ -666,8 +726,9 @@ function startProgress(label) {
   el.hidden = false;
   const tick = () => {
     const sec = Math.floor((Date.now() - state.started) / 1000);
-    el.textContent = `${label}中 · 已等待 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`
-      + (label === "生成" ? " · 每张通常 30 秒到 3 分钟，请不要关闭页面" : "");
+    const phase = label === "校验" ? "校验请求中" : label === "生成" ? "已提交生成请求" : `${label}请求中`;
+    el.textContent = `${phase} · 已等待 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`
+      + (label === "生成" ? " · 远端处理耗时不固定；这里仅显示等待时间" : "");
   };
   tick();
   clearInterval(state.timer);
@@ -764,7 +825,7 @@ async function submit(dry) {
     const res = await postJson("/api/generate", payload);
     reportResult(res, label);
     await refreshOrders();
-    if (res.order) await selectOrder(res.order, { keepForm: true });
+    if (res.order) await selectOrder(res.order, { keepForm: true, showResult: !dry && res.ok });
   } catch (err) {
     notice(`${label}出错：${err.message || err}`, "error");
     log(`${label}出错：${err.message || err}`);
@@ -785,6 +846,7 @@ async function continueRun(options, label) {
     if (res.detail) state.detail = res.detail;
     renderDetail();
     await refreshOrders();
+    if (res.ok && label !== "放弃") setView("result");
   } finally {
     stopProgress();
     setBusy(false);
@@ -961,6 +1023,9 @@ function bindDialog() {
 }
 
 function bindEvents() {
+  document.querySelectorAll("#viewNav [data-view]").forEach((btn) => {
+    btn.addEventListener("click", () => setView(btn.dataset.view));
+  });
   bindDialog();
   bindSchemes();
   $("genForm").addEventListener("submit", (e) => {
@@ -999,10 +1064,14 @@ function bindEvents() {
     state.sizeMode = "custom";
     renderSize();
   });
-  $("ratioSeg").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-ratio]");
-    if (!btn) return;
-    state.ratio = btn.dataset.ratio;
+  document.querySelectorAll("[data-orient]").forEach((b) => b.addEventListener("click", () => {
+    if (state.orient === b.dataset.orient) return;
+    state.orient = b.dataset.orient;
+    state.ratioPos = ORIENT_RANGE[state.orient][0];
+    renderSize();
+  }));
+  $("ratioRange").addEventListener("input", (e) => {
+    state.ratioPos = Number(e.target.value);
     renderSize();
   });
   $("edgeSeg").addEventListener("click", (e) => {
@@ -1024,12 +1093,13 @@ function bindEvents() {
   });
   $("orderList").addEventListener("click", (e) => {
     const btn = e.target.closest(".order-item");
-    if (btn) selectOrder(btn.dataset.name);
+    if (btn) selectOrder(btn.dataset.name, { showResult: true });
   });
 }
 
 async function init() {
   bindEvents();
+  setView("work");
   $("nameInput").value = defaultName();
   try {
     await refreshMeta();
