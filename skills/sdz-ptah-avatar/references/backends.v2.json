@@ -1025,6 +1025,63 @@
         "notes": "魔搭元信息接口 license=other；未逐条核对条款前不得声明可商用"
       },
       "note": "2026-11-26 由官方模型库清查补登：任务类型 image-to-image，下载 155 万（该系列最热）。参考图上限**未确认**，先按 1 张保守声明（本次也只测 1 张），实测后再放开。steps/guidance/负向词通道未确认，先全部关闭。许可为 other（非标准），具体条款须看模型页，未核对前不得声明可商用。【2026-11-26 实测】1024² 带 1 张参考图真出（RGB 1.67MB，150.2s）。**帽徽与衣领是所有后端里最准的**：帽徽是深绿折线（对）、白衬衫领+深蓝内衬+绿背带+黄纽扣（全对）、正面构图、两侧脸颊闪电纹都有、黑色尖刺发形态最接近。不足：**背景跑出蓝天白云**（提示词要求纯色平涂）、整体**胶片颗粒/做旧纹理**很重（不是干净赛璐璐）、脸型偏成人。参考图上限未确认，**本次只测 1 张**，注册表按 1 张保守声明。"
+    },
+    {
+      "id": "modelscope-z-image",
+      "display_name": "ModelScope 在线 · Z-Image（通义官方）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "Tongyi-MAI/Z-Image",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2,
+        "steps_param": false,
+        "guidance_param": false
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 0,
+        "reference_roles": [],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328,
+          2048
+        ],
+        "stages": [
+          "single"
+        ],
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "Tongyi-MAI/Z-Image",
+        "version": "base"
+      },
+      "license": {
+        "id": "Apache-2.0（权重）",
+        "commercial_use": true,
+        "redistribute_weights": true,
+        "notes": "权重 Apache-2.0 可商用可再分发；但魔搭免费推理服务条款另计（非商用、限流），商用须自托管权重——权重许可与服务条款不是一回事"
+      },
+      "note": "2026-11-26 与 Turbo 版一并补登：apache-2.0、下载 30 万，通义官方文生图标准版。纯文生图、不接受参考图（reference_max=0、只支持 single）。steps/guidance/负向词通道未确认，先全部关闭不下发；尺寸上限未确认，按 [1024,1328,2048] 保守声明。与 Turbo 的差别是步数与质量/耗时权衡，待实测对比。【2026-11-26 实测·两次对照】① 用原提示词（含 15 个十六进制色值与 HSL 规格）→ 1024² 出图 32.8s，但**模型把色值当文字画进了画面**（出现 #455544、#322727、128°、32% 等标注），且边缘锯齿、色块断层严重 —— 这张不可用。② 去掉全部色值后同一模型重跑（31s）：文字消失、**正面胸像、白衬衫领+蓝外套+绿背带+黄纽扣全对**、两侧脸颊闪电纹、背景纯色平涂，画质正常。⇒ **本模型的文字渲染能力强，提示词里的色值会被当内容画出来**；用它必须删掉色值段。副作用：删色值也删掉了背景色约束，背景由米色变成深棕（颜色不再可控）。帽徽仍画成深绿倒 U 弧线（不是角色卡的折线），脸型偏成人。"
     }
   ]
 }
