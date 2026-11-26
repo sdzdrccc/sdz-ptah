@@ -35,15 +35,18 @@
       </div>
 
       <div class="block">
-        <div class="block-title">模型管理 <span class="en">Models</span></div>
+        <div class="block-title">模型管理 <span class="en">Models</span>
+          <button id="pickModelBtn" class="pick" type="button">选择模型</button>
+        </div>
         <div class="mgr">
           <div class="mgr-cover">
             <img id="ckptCover" alt="" hidden>
             <div id="ckptCoverFallback" class="cover-fallback">无模型</div>
           </div>
           <div class="mgr-main">
-            <button id="pickModelBtn" class="pick" type="button">选择模型</button>
             <span class="small">可选择 Checkpoint、VAE、LoRA；方案与模型在弹窗里选</span>
+            <p id="modelCaps" class="small"></p>
+            <ul id="modelReasons" class="reasons" hidden></ul>
             <div class="mgr-grid">
               <div class="slot">
                 <span class="lbl">Checkpoint</span>
@@ -59,8 +62,6 @@
               <div id="loraList" class="lora-list"></div>
               <button id="addLoraBtn" class="lora-add" type="button">＋ 添加 LoRA</button>
             </div>
-            <ul id="modelReasons" class="reasons" hidden></ul>
-            <p id="modelCaps" class="small"></p>
           </div>
         </div>
       </div>
@@ -122,7 +123,7 @@
           </div>
 
           <div class="pcol">
-            <div class="f">
+            <div class="f inline-tabs">
               <span class="lbl">尺寸 <span class="en">Size</span></span>
               <div class="seg wide tabs" role="tablist">
                 <button id="sizeTabPreset" type="button" class="active">预置尺寸</button>

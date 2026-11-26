@@ -415,7 +415,7 @@
       "display_name": "ModelScope 在线 · Qwen-Image-2.1（生图/编辑）",
       "engine": "http_modelscope",
       "available": true,
-      "verified": false,
+      "verified": true,
       "external_reproducible": false,
       "data_egress": true,
       "modelscope": {
@@ -467,14 +467,14 @@
         "redistribute_weights": false,
         "notes": "权重为研究许可，商用前需另看条款；免费推理服务非商用、动态限流；1 魔粒/次；参考图会发往远端，需 egress_consent"
       },
-      "note": "网页端实测（方案文档 C.5）身份与画风同时锁住，效果为四个在线模型里最好。官方能力：文生图+图像编辑统一，最多 10 张参考图，原生 2K（2048²），支持 RGBA 与局部编辑；API 侧 size 传 1024/1328，未开放 2K。适配器已实现，待用真实 token 出图验证；参考图以 base64 data URI 传入，若服务不接受需改方案。【2026-11-26 实测】API 接受任意 8 的倍数尺寸，1328/1664/2048 均真出、无静默降级（2048 耗时 346s，RGBA）；4096 未测但同类 API 上限 2048，建议按 ≤2048 使用。"
+      "note": "网页端实测（方案文档 C.5）身份与画风同时锁住，效果为四个在线模型里最好。官方能力：文生图+图像编辑统一，最多 10 张参考图，原生 2K（2048²），支持 RGBA 与局部编辑；API 侧 size 传 1024/1328，未开放 2K。适配器已实现，待用真实 token 出图验证；参考图以 base64 data URI 传入，若服务不接受需改方案。【2026-11-26 实测】API 接受任意 8 的倍数尺寸，1328/1664/2048 均真出、无静默降级（2048 耗时 346s，RGBA）；4096 未测但同类 API 上限 2048，建议按 ≤2048 使用。【2026-11-26 补标 verified】此前后端漏标 verified，导致网页一直显示「未实测」。实际已多次出图：1024/1328/1664/2048 均真出、无静默降级（2048 约 346s，输出 RGBA）"
     },
     {
       "id": "modelscope-minimax-h3-image",
       "display_name": "ModelScope 在线 · MiniMax-H3-Image（生图/编辑）",
       "engine": "http_modelscope",
       "available": true,
-      "verified": false,
+      "verified": true,
       "external_reproducible": false,
       "data_egress": true,
       "modelscope": {
@@ -529,7 +529,7 @@
         "redistribute_weights": false,
         "notes": "社区许可：年化营收超 100 万美元或向第三方提供托管服务须获 MiniMax 书面授权；免费推理服务非商用、动态限流；2 魔粒/次；参考图会发往远端，需 egress_consent"
       },
-      "note": "网页端实测（方案文档 C.5）6 步出 4096² 图、线条清晰，但许可与开放权重情况比 Qwen-Image-2.1 复杂。API 硬限制：negative_prompt 传了直接 HTTP 400（注册表已设 negative_prompt=false，brief 里带了也会被适配器忽略）；steps/guidance 只能用默认值（否则 400，已用 steps_param/guidance_param=false 关闭发送）；原生建议 16MP（4096²），API 侧 size 未开放该档，画布仍走 1024。最多 16 张参考图。适配器已实现，待真实 token 出图验证。【2026-11-26 实测】size_param 已由 false 改为 true：带 size 请求 2048 真实出 2048×2048（113s，RGB）；请求 4096 被服务端拒绝 HTTP 400「width must be integer in [64,2048]」。即 API 上限 2048，网页端的 4096² 属网页通道能力，API 不给。"
+      "note": "网页端实测（方案文档 C.5）6 步出 4096² 图、线条清晰，但许可与开放权重情况比 Qwen-Image-2.1 复杂。API 硬限制：negative_prompt 传了直接 HTTP 400（注册表已设 negative_prompt=false，brief 里带了也会被适配器忽略）；steps/guidance 只能用默认值（否则 400，已用 steps_param/guidance_param=false 关闭发送）；原生建议 16MP（4096²），API 侧 size 未开放该档，画布仍走 1024。最多 16 张参考图。适配器已实现，待真实 token 出图验证。【2026-11-26 实测】size_param 已由 false 改为 true：带 size 请求 2048 真实出 2048×2048（113s，RGB）；请求 4096 被服务端拒绝 HTTP 400「width must be integer in [64,2048]」。即 API 上限 2048，网页端的 4096² 属网页通道能力，API 不给。【2026-11-26 补标 verified】此前后端漏标 verified，网页一直显示「未实测」。实际已出图：2048 实测约 114s、输出 RGBA；该模型不支持负向词/步数/CFG（参数通道已关）"
     },
     {
       "id": "modelscope-qwen-image-2.1-turbo",

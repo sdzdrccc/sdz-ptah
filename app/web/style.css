@@ -266,6 +266,13 @@ button:disabled, input:disabled, select:disabled, textarea:disabled {
   display: flex; align-items: center; gap: 9px;
   font-weight: 650; font-size: 13.5px; margin-bottom: 8px;
 }
+/* 区块标题行的动作按钮：靠右，不占正文那一行 */
+.block-title .pick { margin-left: auto; }
+/* 标签与选项卡同一行（尺寸区用） */
+.f.inline-tabs { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.f.inline-tabs .seg.wide { gap: 5px; grid-auto-columns: auto; }
+.f.inline-tabs .seg.wide button { padding: 6px 12px; }
+
 .block-title::before {
   content: ""; flex: none; width: 4px; height: 15px; border-radius: 4px;
   background: linear-gradient(180deg, var(--gold), var(--accent));
@@ -303,7 +310,7 @@ button:disabled, input:disabled, select:disabled, textarea:disabled {
   padding: 2px 8px; border-radius: 6px; font-size: 11px;
   background: var(--panel-3); color: var(--muted); border: 1px solid var(--line-soft);
 }
-#modelCaps { margin-top: 7px; }
+#modelCaps { margin-top: 0; }
 .reasons { margin: 7px 0 0; padding-left: 18px; color: var(--red); font-size: 12px; }
 .reasons li { margin: 2px 0; }
 
