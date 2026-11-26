@@ -88,7 +88,7 @@ python skills/install.py --target ~/.codex/skills   # 装到其他宿主
 
 ```bash
 py -3 -m pip install -r requirements.txt    # 只有 Pillow
-py -3 app/server.py                          # 默认 http://127.0.0.1:8766，自动开浏览器
+py -3 app/server.py                          # 默认 http://127.0.0.1:9906，自动开浏览器
 ```
 
 端口与是否自动开浏览器在 `app/config.json` 里改。订单目录默认是仓库下的 `orders/`，按项目位置自动推导，不需要手填路径。
@@ -243,7 +243,7 @@ sdz-ptah/
 ├── app/                               # 本地网页控制台（服务 + 前端 + 测试）
 │   ├── server.py / simple_input.py / image_prep.py
 │   ├── orderlock.py / api_errors.py   # 订单互斥锁、错误码映射
-│   ├── config.json / start.bat        # 配置（端口 8766）/ Windows 双击启动
+│   ├── config.json / start.bat        # 配置（端口 9906）/ Windows 双击启动
 │   ├── web/                           # 前端：index.html / app.js / style.css
 │   ├── tests/                         # 单元测试（unittest，119 项）
 │   ├── uploads/                       # 运行时上传缓存（gitignore）

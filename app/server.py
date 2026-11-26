@@ -2,7 +2,7 @@
 """sdz-ptah 本地网页控制台：只读调用现有流水线脚本，不另造生成逻辑。
 
 只用 Python 标准库。启动：py -3 server.py
-浏览器访问：http://127.0.0.1:8765/
+浏览器访问：http://127.0.0.1:9906/
 """
 import base64
 import json
@@ -27,7 +27,7 @@ CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
-    "port": 8765,
+    "port": 9906,
     "open_browser": True,
     "orders_root": os.path.join(PROJECT_ROOT, "orders"),
     "skill_root": os.path.join(PROJECT_ROOT, "skills", "sdz-ptah-avatar"),
@@ -1014,7 +1014,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     host = CONFIG.get("host") or "127.0.0.1"
-    port = int(CONFIG.get("port") or 8765)
+    port = int(CONFIG.get("port") or 9906)
     url = "http://%s:%d/" % (host, port)
     if CONFIG.get("open_browser"):
         threading.Timer(1.0, webbrowser.open, args=[url]).start()
