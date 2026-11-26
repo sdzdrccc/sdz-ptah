@@ -482,19 +482,14 @@ def resolve_model(spec, use_reference, params=None):
 
 
 def scheme_of(spec):
-    """方案（大类）：网页先选方案，再在方案里选模型。"""
+    """方案（大类）：只按接入通道分，不按厂商拆。
+
+    以前这里按模型名再切成「魔搭在线 · Qwen / MiniMax / 其他」，但方案卡的用途
+    只是回答"走哪条通道"，具体模型在「模型管理」里选——按厂商拆既多一层点击，
+    也会随新模型上线不断长出新的方案卡。故统一归「魔搭在线」。
+    """
     engine = spec.get("engine")
-    if engine == "comfyui":
-        return "本机 ComfyUI"
-    if engine == "host":
-        return "宿主工具"
-    name = str((spec.get("model") or {}).get("name") or (spec.get("modelscope") or {}).get("model")
-                or spec.get("id") or "").lower()
-    if "qwen" in name:
-        return "魔搭在线 · Qwen"
-    if "minimax" in name:
-        return "魔搭在线 · MiniMax"
-    return "魔搭在线 · 其他"
+    return ENGINE_GROUP.get(engine) or "其他"
 
 
 def model_options():

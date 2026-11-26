@@ -131,10 +131,12 @@ function vaeById(id) {
 }
 
 function schemeOf(m) {
-  return m.scheme || "其他";
+  const raw = m.scheme || "其他";
+  // 方案只按「接入方式」分：Qwen / MiniMax / 其他都归「魔搭在线」，不按厂商拆。
+  return raw.indexOf("魔搭在线") === 0 ? "魔搭在线" : raw;
 }
 
-const SCHEME_ORDER = ["魔搭在线 · Qwen", "魔搭在线 · MiniMax", "魔搭在线 · 其他", "本机 ComfyUI", "宿主工具"];
+const SCHEME_ORDER = ["魔搭在线", "本机 ComfyUI", "宿主工具"];
 
 function schemes() {
   const map = new Map();
@@ -181,17 +183,17 @@ function renderSchemeDetail() {
   if (s && !s.ok) notes.push("这个方案下的模型当前都不可用。");
   if (id === "宿主工具") notes.push("宿主工具只能在 Agnes / TRAE 的 agent 会话里执行，网页只能生成调用单。");
   if (id === "本机 ComfyUI") notes.push("需要本机 ComfyUI 服务已启动，且工作流已导出。");
+  const ok = items.filter((m) => m.selectable).length;
+  const cur = model();
+  const curLine = cur && items.some((m) => m.id === cur.id)
+    ? `当前：<b>${esc(shortName(cur))}</b>`
+    : "尚未选择模型";
   box.hidden = false;
+  // 方案卡只表达「走哪条通道」；具体模型在「模型管理」里选，这里不再铺模型卡片。
   box.innerHTML = `
     ${notes.map((x) => `<p class="scheme-note">${esc(x)}</p>`).join("")}
-    <div class="models">${items.map((m) => `
-      <button type="button" class="mcard ${m.id === state.modelId ? "active" : ""}" data-model="${esc(m.id)}"
-        ${m.selectable ? "" : "disabled"} aria-pressed="${m.id === state.modelId}">
-        <span class="m-name">${esc(shortName(m))}</span>
-        <span class="m-id">${esc(m.model_name || m.id)}</span>
-        <span class="tags">${m.verified ? badge("已实测", "ok") : badge("未实测", "warn")}${m.data_egress ? badge("外发", "warn") : ""}${m.selectable ? "" : badge("不可用", "bad")}</span>
-        ${!m.selectable && (m.reasons || []).length ? `<span class="why">${esc(m.reasons[0])}</span>` : ""}
-      </button>`).join("")}</div>`;
+    <p class="scheme-note">共 ${items.length} 个模型，可用 ${ok} 个 · ${curLine}</p>
+    <button type="button" class="btn" data-open-models>选择模型</button>`;
 }
 
 function renderModelList() { /* 模型区改为 renderModelArea */ }
@@ -1038,6 +1040,10 @@ function bindSchemes() {
     log(`已选方案：${btn.dataset.scheme}`);
   });
   $("schemeDetail").addEventListener("click", (e) => {
+    if (e.target.closest("[data-open-models]")) {
+      openDialog();
+      return;
+    }
     const btn = e.target.closest("[data-model]");
     if (!btn || btn.disabled) return;
     selectModel(btn.dataset.model);
