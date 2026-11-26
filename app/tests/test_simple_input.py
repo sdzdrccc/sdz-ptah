@@ -116,10 +116,10 @@ class CleanTests(unittest.TestCase):
     def test_ratio_size(self):
         rs = simple_input.ratio_size
         self.assertEqual(rs("1:1", 1024), (1024, 1024))
-        self.assertEqual(rs("3:4", 1328), (1000, 1328))
+        self.assertEqual(rs("3:4", 2048), (1536, 2048))
         self.assertEqual(rs("16:9", 1024), (1024, 576))
         for r in simple_input.RATIOS:
-            for edge in (1024, 1328):
+            for edge in (1024, 2048):
                 w, h = rs(r["id"], edge)
                 simple_input.parse_size("%dx%d" % (w, h))
         with self.assertRaises(ValueError):

@@ -25,10 +25,11 @@ RATIOS = [
     {"id": "3:2", "w": 3, "h": 2, "label": "横向"},
     {"id": "16:9", "w": 16, "h": 9, "label": "横向"},
 ]
-# 有真实出图记录（非静默降级）的尺寸。2026-11-26 实测：
-# Qwen-Image-2.1 与 MiniMax-H3-Image 在 1328/1664/2048 上均真出；
-# 4096 被服务端拒绝（width must be integer in [64,2048]）。
-VERIFIED_SIZES = ("1024x1024", "1328x1328", "1664x1664", "2048x2048")
+# 网页可选的长边档位。2026-11-26 实测 Qwen-Image-2.1 与 MiniMax-H3-Image 在
+# 1328 / 1664 / 2048 上均真出、无静默降级（4096 被服务端拒：width must be integer in [64,2048]）。
+# 但网页只保留 1024 与 2048 两档：1328/1664 落在这两者之间，多两档只是多两行按钮，
+# 对成片没有实质收益，反而让「原生 / 插值」的边界更难讲清。
+VERIFIED_SIZES = ("1024x1024", "2048x2048")
 
 # 旧版页面用的尺寸下拉（保留兼容）
 SIZE_CHOICES = [
@@ -47,7 +48,7 @@ def _round8(v):
 
 
 def ratio_size(ratio_id, long_edge):
-    """('3:4', 1328) → (996, 1328)；长边固定，短边按比例取 8 的倍数。"""
+    """('3:4', 1024) → (768, 1024)；长边固定，短边按比例取 8 的倍数。"""
     r = next((x for x in RATIOS if x["id"] == ratio_id), None)
     if r is None:
         raise ValueError("未知画幅：%s" % ratio_id)

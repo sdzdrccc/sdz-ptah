@@ -150,4 +150,5 @@
 - **默认交付档 = `1024,2k,4k` 三档全出**（`avatar_pipeline.py` 的 `--formats` 默认值）。只要 1024 必须显式传 `--formats 1024`。目录里因此会有 `<前缀>-avatar-N.png`、`-2k.png`、`-4k.png` 三份，单张 4k 约 20–30 MB。
 - **网页控制台不出交付档**：`app/server.py` 只调 `generate.py` 出原图，不调 `avatar_pipeline.py`，所以 `brief.formats` 只是意图记录，真正决定导出的是流水线的 `--formats`。
 - **原生出图尺寸（2026-11-26 实测）**：魔搭两个后端（Qwen-Image-2.1 / MiniMax-H3-Image）的 API 都接受 1024 / 1328 / 1664 / 2048，且**真出、不静默降级**；**4096 被拒**（HTTP 400 `width must be integer in [64,2048]`）。网页端能填 4096，属网页通道能力，不等于 API。合法区间落在 `generate.py` 的 `RENDER_MIN/RENDER_MAX`，**改之前先有实测记录**——`backends.v2.json` 里 `verified=false` 的声明不能当事实引用。
+- **网页只提供 1024 与 2048 两档长边**（2026-11-26 精简）：1328 / 1664 已从 `VERIFIED_SIZES` 与各后端 `capabilities.sizes` 去掉。理由不是它们画不出来（上面那条实测仍成立），而是**多两档只多两行按钮、对成片没有实质收益，还让「原生 / 插值」的边界更难讲清**。非方图由 `ratio_size()` 按长边推导（如 3:4 + 2048 → 1536×2048）。
 - **对外协作必须写全「宽×高」**，不要只说「4K」：4K 有两套定义，光说 4K 一定会在别处得到 3840（2026-11-26 实际发生过：`F:\zxc\Project\sdzdrccc\头像\亚当` 的 4K 版是 1920×2 = 3840×3840）。
