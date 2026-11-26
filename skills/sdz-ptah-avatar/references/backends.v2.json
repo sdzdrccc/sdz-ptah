@@ -909,6 +909,122 @@
         "notes": "付费 API，商用范围以阿里云百炼服务协议为准；参考图会发往远端，需 egress_consent"
       },
       "note": "2026-11-26 按官方文档登记：docs.bailian.console.aliyun.com/zh/model-studio/qwen-image-generation-and-editing-api-reference 。与魔搭的 Qwen/Qwen-Image-2.1 是同一批权重，差别在服务：**有 seed**、支持透明通道、付费合规、RPM 更高。尺寸 512²~2048²（**不支持 4096**），参考图 1~10 张；2.1 不支持 negative_prompt（仅 3.0）；2.1 不支持 b64_json，只能拿 URL（24h 有效），故拿到即下载。DashScope 协议尺寸用星号 2048*2048。模型/Endpoint/Key 必须同地域。默认关 prompt_extend，避免提示词被官方二次改写。**尚未实测**。【2026-11-26 实测】1024² 带 1 张参考图真出（**RGBA**，1.31MB，16.76s），seed=1834313677 已记录、异步 task_id 已记录。质量是目前所有后端里最好的一张：单角色、纯米色平涂背景、正面、尖刺发、脸颊三道闪电纹、蓝外套/白领/绿背带/黄纽扣全对、无畸变。透明通道未触发——容器是 RGBA 但 alpha 实测 250~255（不透明），因为提示词要求纯色背景；官方是「按提示词自动决定」，要透明得在提示词里要。**与 MiniMax 官方相反，这次没有拦拟似 IP 的图**（同一张参考图在 MiniMax 编辑通道被 422 拒），但国内平台合规审核依然在，不保证以后不拦。【补充实测 2048】请求 2048×2048 真出 2048×2048（RGBA 5.67MB，38.03s），面积 4,194,304 恰好等于官方上限，seed=1834313678 已记录；线条比 1024 更干净锐利，构图与 1024 一致。"
+    },
+    {
+      "id": "modelscope-z-image-turbo",
+      "display_name": "ModelScope 在线 · Z-Image Turbo（通义官方）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "Tongyi-MAI/Z-Image-Turbo",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2,
+        "steps_param": false,
+        "guidance_param": false
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 0,
+        "reference_roles": [],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328,
+          2048
+        ],
+        "stages": [
+          "single"
+        ],
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "Tongyi-MAI/Z-Image-Turbo",
+        "version": "turbo"
+      },
+      "license": {
+        "id": "Apache-2.0（权重）",
+        "commercial_use": true,
+        "redistribute_weights": true,
+        "notes": "权重 Apache-2.0 可商用可再分发；但魔搭免费推理服务条款另计（非商用、限流），商用须自托管权重——权重许可与服务条款不是一回事"
+      },
+      "note": "2026-11-26 由官方模型库清查补登（此前漏掉）：apache-2.0、下载 96 万，通义官方另一条文生图线。**纯文生图、不接受参考图**，故 reference_max=0、只支持 single。steps/guidance/负向词三个通道未确认，先全部关闭（不下发），避免首次就吃 400；若服务接受再按实测放开。尺寸上限未确认，先按 [1024,1328,2048] 保守声明。【2026-11-26 实测】1024² 文生图真出（RGB 0.97MB，18.9s，无参考图）。优点：单角色、**脸型偏少年（目前最接近 10–12 岁的）**、赛璐璐平涂、90 年代动画感强、无畸变。不足：背景是米色但**带墙面色块纹理**（不是纯平涂）、构图偏**四分之三侧脸**、帽徽画成绿色椭圆（应为深色折线）、领子是立领（角色卡是白衬衫领）。因为是纯文生图、无参考图通道，身份一致性只能靠提示词。"
+    },
+    {
+      "id": "modelscope-flux2-klein-9b",
+      "display_name": "ModelScope 在线 · FLUX.2 klein 9B",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "black-forest-labs/FLUX.2-klein-9B",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2,
+        "steps_param": false,
+        "guidance_param": false
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": false,
+        "steps": false,
+        "guidance": false,
+        "reference_max": 1,
+        "reference_roles": [
+          "identity"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          2048
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh",
+        "max_edge": 2048
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "black-forest-labs/FLUX.2-klein-9B",
+        "version": "2-klein-9b"
+      },
+      "license": {
+        "id": "other（非标准许可，以模型页为准）",
+        "commercial_use": null,
+        "redistribute_weights": null,
+        "notes": "魔搭元信息接口 license=other；未逐条核对条款前不得声明可商用"
+      },
+      "note": "2026-11-26 由官方模型库清查补登：任务类型 image-to-image，下载 155 万（该系列最热）。参考图上限**未确认**，先按 1 张保守声明（本次也只测 1 张），实测后再放开。steps/guidance/负向词通道未确认，先全部关闭。许可为 other（非标准），具体条款须看模型页，未核对前不得声明可商用。【2026-11-26 实测】1024² 带 1 张参考图真出（RGB 1.67MB，150.2s）。**帽徽与衣领是所有后端里最准的**：帽徽是深绿折线（对）、白衬衫领+深蓝内衬+绿背带+黄纽扣（全对）、正面构图、两侧脸颊闪电纹都有、黑色尖刺发形态最接近。不足：**背景跑出蓝天白云**（提示词要求纯色平涂）、整体**胶片颗粒/做旧纹理**很重（不是干净赛璐璐）、脸型偏成人。参考图上限未确认，**本次只测 1 张**，注册表按 1 张保守声明。"
     }
   ]
 }
