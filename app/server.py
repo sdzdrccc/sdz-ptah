@@ -84,12 +84,25 @@ def orders_root():
 
 
 def default_order_name():
-    """未填写「保存名称」时的默认目录名：按本地时间生成，保证每单不同。
+    """未填写「保存名称」时的默认目录名：按本地日期生成，例如 avatar-20261126。
 
     以前这里固定兜底成 "avatar"，导致所有未命名的订单都堆进同一个目录，
-    分不出是新单还是续跑。改用时间戳后，目录名自带唯一性与可排序性。
+    分不出是新单还是续跑。改用日期后，目录名自带可读的区分度。
     """
-    return "avatar-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+    return "avatar-" + datetime.now().strftime("%Y%m%d")
+
+
+def order_character(payload):
+    """取建单用的角色标识（订单目录名）。
+
+    缺失即报错。旧版这里兜底成字面量 "satoshi"，后果是：一个空的
+    POST /api/orders 就能在真实订单根下静默建出一张 satoshi 单，
+    并覆盖同名目录里已有的 brief.json。宁可 400，也不要凭空建单。
+    """
+    raw = (payload or {}).get("character_id") or (payload or {}).get("character")
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("缺少 character_id：建单必须指定角色（不接受空角色名）")
+    return safe_name(raw.strip())
 
 
 def safe_name(value):
@@ -523,7 +536,7 @@ def model_options():
 
 
 def create_order(payload):
-    character = safe_name(payload.get("character_id") or payload.get("character") or "satoshi")
+    character = order_character(payload)
     style_id = safe_name(payload.get("style_id") or "tv-anime-cel")
     gender = payload.get("gender") or "unspecified"
     if gender not in ("male", "female", "unspecified"):
@@ -962,8 +975,7 @@ class Handler(BaseHTTPRequestHandler):
                     result = simple_generate(payload)
                 return self._result(result)
             if path == "/api/orders":
-                character = safe_name(payload.get("character_id") or payload.get("character")
-                                      or "satoshi")
+                character = order_character(payload)
                 with locked(os.path.join(orders_root(), character), payload.get("channel")):
                     result = create_order(payload)
                 return self._result(result)

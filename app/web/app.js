@@ -466,11 +466,11 @@ function setRefFile(file) {
     : DEFAULT_REF_INFO;
 }
 
-// 默认保存名称：按本地时间生成唯一目录名，避免每单都落进同一个 avatar 目录
+// 默认保存名称：按本地日期生成，避免每单都落进同一个写死的 avatar 目录
 function defaultName() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, "0");
-  return `avatar-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `avatar-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
 }
 
 function resetForm() {
