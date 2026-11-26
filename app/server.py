@@ -388,7 +388,7 @@ def meta_payload():
         "ratios": simple_input.RATIOS,
         "verified_sizes": list(simple_input.VERIFIED_SIZES),
         "count_choices": list(simple_input.COUNT_CHOICES),
-        "default_model": CONFIG.get("default_model") or "modelscope-qwen-edit",
+        "default_model": CONFIG.get("default_model") or "modelscope-qwen-image-2.1",
         "max_count": simple_input.MAX_COUNT,
         "simple_budget": SIMPLE_BUDGET,
         "project_root": PROJECT_ROOT,

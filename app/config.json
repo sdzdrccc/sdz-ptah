@@ -4,7 +4,7 @@
   "open_browser": true,
   "lock_ttl_s": 1800,
   "default_preset": "modelscope-qwen-edit",
-  "default_model": "modelscope-qwen-edit",
+  "default_model": "modelscope-qwen-image-2.1",
   "image_max_edge": 1536,
   "image_max_bytes": 1048576,
   "orders_root": "F:/zxc/Project/sdz-ptah/orders",
