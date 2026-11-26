@@ -2,7 +2,7 @@
 
 本文件是可执行条款：阈值、公式、原因码、命名与产物字段，自包含、可直接执行。
 可选外链（补充设计依据，缺失不影响本文件生效）：
-`ai-anime-avatar/outputs/AI动漫头像生成方案.md`（第 1.3、2.6、3.2、3.4、4.x 节）。
+`design/outputs/AI动漫头像生成方案.md`（第 1.3、2.6、3.2、3.4、4.x 节）。
 
 > **第一原则（优先于所有处理侧优化）：质量靠生成，后处理只做交付。**
 > 生成图不合适，裁切、放大、调色都救不回来。因此：
@@ -343,7 +343,7 @@ square canvas, no border, no frame, no circular mask, edge-to-edge，肩线完�
 | 3/4 / 仰俯 | `reserved`，命中即 `angle_mismatch` | — | — | — | — |
 
 正脸还要同时满足：双眼都检出、眼线倾斜 ≤0.07、双眼水平平衡 ≤0.08。正脸区间用
-`ai-anime-avatar/verify/raw` 的 5 张正样本校准（实测 eye_center_y 0.303–0.316），
+`design/verify/raw` 的 5 张正样本校准（实测 eye_center_y 0.303–0.316），
 不从侧脸区间外推；3/4 脸常也能检出双眼，但眼位/倾斜对不上，仍按 `reserved` 拒。
 
 **无脸/皮套（`face_mode=faceless`）**：不用眼部锚点，角度改用面罩/高光横向偏移

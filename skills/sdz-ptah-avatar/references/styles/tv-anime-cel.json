@@ -6,7 +6,7 @@
   "status": "active",
   "source": {
     "type": "reference-images",
-    "note": "依据 12 格 TV 动画截图（小智）+ 1996 TV 单帧对照样本提取；参考图仅本地留存，路径 ai-anime-avatar/基准/风格参考/，不入公开仓库",
+    "note": "依据 12 格 TV 动画截图（小智）+ 1996 TV 单帧对照样本提取；参考图仅本地留存，路径 design/baselines/风格参考/，不入公开仓库",
     "reference_count": 3
   },
   "prompt_anchor": "1990 年代日本 TV 动画赛璐璐风格：flat cel shading，hard-edged two-tone shadow（硬边双色阶阴影），2-3px dark-brown outline（2 到 3 像素深棕描边，不是纯黑粗线），no gradient、no airbrush、no glossy highlight，muted 90s TV palette（低彩度年代色板），reduced internal detail（减少发丝与布料细碎细节），slightly darker exposure（整体曝光略压暗，暗部沉而不死黑），subtle film grain（轻微胶片颗粒），平涂上色、平面感优先，无厚涂、无 3D 渲染",

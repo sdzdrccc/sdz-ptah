@@ -23,7 +23,7 @@
 5. **质量闸门**：原图质量分（面部、构图、风格、角度）与成品校验（截断、留白、画布、缩略图可读性）分开评分。
 6. **交付**：1024 方图，可选 2K / 4K / JPG，附联系表与 `manifest.json`（记录后端、seed、是否可复现、许可快照）。
 
-设计依据与阈值来源见[方案文档](ai-anime-avatar/outputs/AI动漫头像生成方案.md)。
+设计依据与阈值来源见[方案文档](design/outputs/AI动漫头像生成方案.md)。
 
 ## 能力边界（写实话）
 
@@ -178,13 +178,14 @@ py -3 "$skill\scripts\rounds.py" --order "D:\avatar-orders\mychar" `
 
 ## 目录结构
 
-命名与目录规则见 [CONVENTIONS.md](CONVENTIONS.md)，2026-11-26 整理的变更记录见 [CHANGELOG-命名整理.md](CHANGELOG-命名整理.md)。
+命名与目录规则见 [CONVENTIONS.md](docs/CONVENTIONS.md)，2026-11-26 整理的变更记录见 [CHANGELOG-命名整理.md](docs/CHANGELOG-命名整理.md)。
 
 ```text
 sdz-ptah/
 ├── README.md
-├── CONVENTIONS.md                     # 命名与目录规范（长期规则）
-├── CHANGELOG-命名整理.md              # 2026-11-26 命名整理变更说明
+├── docs/                              # 项目级文档：规范与变更记录
+│   ├── CONVENTIONS.md                 # 命名与目录规范（长期规则）
+│   └── CHANGELOG-命名整理.md          # 命名整理变更说明
 ├── skills/
 │   ├── install.py                     # 安装脚本：链接 / 复制到宿主技能目录
 │   └── sdz-ptah-avatar/               # 技能本体（自包含，可安装）
@@ -214,13 +215,13 @@ sdz-ptah/
 │   ├── tests/                         # 单元测试（unittest，119 项）
 │   ├── uploads/                       # 运行时上传缓存（gitignore）
 │   └── custom/                        # 运行时生成的用户角色/风格档案（gitignore）
-├── ai-anime-avatar/
+├── design/                            # 知识资产：方案 / 评审 / 验证 / 校准基准
 │   ├── outputs/                       # 方案正文与设计依据
 │   ├── review/                        # 评审清单、核查结果、实测记录、魔搭模型清单
 │   │   └── diagnostics/               # 诊断脚本（diag_NN_）与输出（.out.txt）
 │   ├── probe/                         # 生成端能力探针（公开前清理，见路线图 M0-1）
+│   ├── baselines/                     # 阈值校准基准（gitignore，含正样本/风格参考）
 │   └── verify/                        # 验证样本；输出目录统一 out-<变体>（gitignore）
-├── architecture/draft/                # 架构设计草稿
 └── avatar-orders/                     # 运行时订单数据（gitignore）
 ```
 
@@ -231,7 +232,7 @@ sdz-ptah/
 > 以下为工程说明，**不构成法律意见**。涉及许可、标识义务与角色版权的判断，请自行核实或咨询专业意见。
 
 - **代码许可：尚未确定**（路线图 M0-3）。在仓库加入 `LICENSE` 文件之前，代码默认不授予开源许可。
-- **代码许可 ≠ 模型许可 ≠ 数据许可**：三者分别标注。模型权重**不随仓库分发**，请从官方来源下载并遵守各自许可；完整的逐组件许可表见[方案文档 9.1](ai-anime-avatar/outputs/AI动漫头像生成方案.md)。
+- **代码许可 ≠ 模型许可 ≠ 数据许可**：三者分别标注。模型权重**不随仓库分发**，请从官方来源下载并遵守各自许可；完整的逐组件许可表见[方案文档 9.1](design/outputs/AI动漫头像生成方案.md)。
 - **默认路线只选允许商用的组件**（Animagine XL 4.0、Neta Lumina 主模型、Qwen-Image-Edit-2511）。NoobAI-XL 的许可禁止任何商用（含生成物），只作可选、默认关闭。
 - **生成内容**：使用者对自己的输入与产出负责。国内发布时请关注《人工智能生成合成内容标识办法》（2025-09-01 施行）的标识要求，自动标识功能在路线图 M5-2。
 - **角色版权**：请使用原创或已获授权的角色。仓库内的示例角色卡 `satoshi` 是第三方作品角色，仅作内部阈值校准，公开发布前会替换为原创角色（路线图 M0-1 / M0-2）。
@@ -247,7 +248,7 @@ sdz-ptah/
 
 ## 路线图
 
-完整计划、依赖和完成标准见[方案文档第 10 节](ai-anime-avatar/outputs/AI动漫头像生成方案.md)。摘要：
+完整计划、依赖和完成标准见[方案文档第 10 节](design/outputs/AI动漫头像生成方案.md)。摘要：
 
 | 阶段 | 内容 |
 |-|-|
@@ -260,10 +261,10 @@ sdz-ptah/
 
 ## 文档
 
-- [方案文档](ai-anime-avatar/outputs/AI动漫头像生成方案.md)：路线选型、质量保障、端到端链路、合规边界、路线图
+- [方案文档](design/outputs/AI动漫头像生成方案.md)：路线选型、质量保障、端到端链路、合规边界、路线图
 - [`SKILL.md`](skills/sdz-ptah-avatar/SKILL.md)：智能体执行手册
 - [`protocol.md`](skills/sdz-ptah-avatar/references/protocol.md)：字段、阈值与原因码
-- [后端适配器接口设计](ai-anime-avatar/review/AI动漫头像-后端适配器接口设计.md)
+- [后端适配器接口设计](design/review/AI动漫头像-后端适配器接口设计.md)
 
 ## 致谢
 

@@ -2,7 +2,7 @@
 """后端适配器：统一数据契约与基类。
 
 只依赖标准库（+ 可选 Pillow 计算尺寸），不依赖 torch / numpy。
-设计说明见 ai-anime-avatar/review/AI动漫头像-后端适配器接口设计.md。
+设计说明见 design/review/AI动漫头像-后端适配器接口设计.md。
 """
 
 import hashlib

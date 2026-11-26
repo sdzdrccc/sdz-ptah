@@ -8,18 +8,15 @@
 
 ## 1. 顶层目录职责
 
-| 目录 | 职责 | 入库 | 命名状态 |
-|---|---|---|---|
-| `skills/sdz-ptah-avatar/` | 技能本体（自包含、可安装） | 是 | 合规 |
-| `sdz-ptah-app/` | 本地 Web 控制台（服务 + 前端 + 测试） | 部分 | 合规 |
-| `ai-anime-avatar/` | 方案 / 评审 / 验证资产（知识资产） | 部分 | 合规 |
-| `architecture/` | 架构设计草稿 | 是 | 合规 |
-| `avatar-orders/` | 运行时订单数据（图片 + 台账） | **否** | 合规，待加 gitignore |
-| `docs/`（本文所在外的规范） | 项目级规范文档 | 是 | 新增 |
-| `.workbuddy/` | 工作日志与项目记忆 | 否 | 合规，待加 gitignore |
-| `.trae/` `.screenshots/` | 宿主本地配置 / 截图缓存 | 否 | 已 gitignore |
+| 目录 | 职责 | 入库 |
+|---|---|---|
+| `skills/sdz-ptah-avatar/` | 技能本体（自包含、可安装） | 是 |
+| `sdz-ptah-app/` | 本地 Web 控制台（服务 + 前端 + 测试） | 部分 |
+| `design/` | 方案 / 评审 / 验证 / 校准基准（知识资产） | 部分 |
+| `docs/` | 项目级规范文档与变更记录 | 是 |
+| `avatar-orders/` | 运行时订单数据（图片 + 台账） | **否** |
 
-**规则**：顶层只用「小写英文 + 连字符」；不新增中文顶层目录。
+**规则**：顶层只用「小写英文 + 连字符」；不新增中文顶层目录。2026-11-26 已按此规整：原 `ai-anime-avatar/` → `design/`、原 `基准/` → `design/baselines/`、废弃的 `architecture/` 与空目录 `.trae/`、`.screenshots/` 已删除、规范文档收进 `docs/`。
 
 ---
 
@@ -103,3 +100,9 @@
 - D2 顶层目录重命名（影响 README + 所有脚本相对路径）。
 
 > 执行策略：默认只做 A 档；B/C 档需确认后逐档执行；D 档保持不动，除非明确要求。
+
+### 后续：中度规整（2026-11-26，大人确认后执行）
+- D1 `基准/` → `design/baselines/`（已执行，gitignore + manifest + 风格档案 note 全部回写）。
+- D2 顶层改名：`ai-anime-avatar/` → `design/`（已执行，15 处引用回写）。
+- 附带：废弃的 `architecture/draft/api_design.md`（自带"已被取代"警告）与空目录 `.trae/`、`.screenshots/` 已删除；`CONVENTIONS.md`、`CHANGELOG-命名整理.md` 收进 `docs/`。
+- 本节为历史记录；当前目录状态以第 1 节表格为准。

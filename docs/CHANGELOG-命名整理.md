@@ -136,3 +136,28 @@ sdz-ptah-app/uploads/          # 网页上传缓存
 - 删除前逐一核验：12 个 `.bak-*` 对应的当前文件均存在，无信息丢失。
 - `archive/` 本身被 `.gitignore` 的 `*.bak-*` 规则挡在版本库外，删除不影响已提交内容。
 - 其余回退路径（诊断脚本、verify 目录、规范文档）不受影响。
+
+---
+
+## 九、结构规整：中度（2026-11-26，大人确认后执行）
+
+目标是让项目更紧凑正式，顶层从 8 个目录精简到 5 个。
+
+### 改名 / 移动
+
+| 原位置 | 新位置 |
+|---|---|
+| `ai-anime-avatar/` | `design/` |
+| `design/基准/`（原 `ai-anime-avatar/基准/`） | `design/baselines/` |
+| 根目录 `CONVENTIONS.md` | `docs/CONVENTIONS.md` |
+| 根目录 `CHANGELOG-命名整理.md` | `docs/CHANGELOG-命名整理.md` |
+
+### 删除
+
+- `architecture/draft/api_design.md`：2026-11-24 废弃草稿，自带「已被取代」警告，现行方案在 `design/outputs/`。
+- `.trae/`、`.screenshots/`：空目录。
+
+### 引用回写
+
+12 个活跃文件回写 `ai-anime-avatar`→`design`、`基准`→`baselines`：README、`.gitignore`、`SKILL.md`、`backends/base.py`、`modelscope-runbook.md`、`protocol.md`、两份 style JSON、一份 manifest 路径、两份方案/评审文档。验收：活跃文件零残留。
+历史文档（本 CHANGELOG、CONVENTIONS）按 append-only 不改写历史条目，仅以本追加节说明。

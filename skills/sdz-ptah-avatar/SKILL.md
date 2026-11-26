@@ -29,7 +29,7 @@ description: Generate anime avatars from a style profile + character card + angl
 
 本 skill 自包含，可独立运行：协议、阈值、脚本、原因码全部在
 `references/protocol.md` 与 `scripts/avatar_pipeline.py` 内，不依赖任何项目目录。
-`ai-anime-avatar/outputs/AI动漫头像生成方案.md` 只是可选外链（补充设计依据），
+`design/outputs/AI动漫头像生成方案.md` 只是可选外链（补充设计依据），
 不存在或路径变化都不影响执行。
 
 ## 生成优先（决策树，优先于处理侧优化）
@@ -499,7 +499,7 @@ py -3 "$skill\scripts\generate.py" --order "<订单目录>" `
 
 - 只做头像执行链；不写方案文档、不做写实真人、不做视频。
 - 阈值、权重、原因码的权威来源是本 skill 内的 `references/protocol.md`；
-  可选外链 `ai-anime-avatar/outputs/AI动漫头像生成方案.md` 仅补充设计说明。
+  可选外链 `design/outputs/AI动漫头像生成方案.md` 仅补充设计说明。
   两者冲突且方案文档可访问时以方案文档为准，并同步修正 protocol.md。
 - 源码唯一真相在仓库 `skills/sdz-ptah-avatar/`；装到 TRAE 的全局技能目录用
   `python skills/install.py`（Windows 下 `python` 报 9009 时改用 `py -3 skills/install.py`；

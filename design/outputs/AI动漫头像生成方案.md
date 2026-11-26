@@ -661,7 +661,7 @@ master 统一 1024×1024 PNG；对外 1024/640/512/360/256/200 六档；社交�
 
 ```
 f:\zxc\Project\sdz-ptah\
-├── ai-anime-avatar\
+├── design\
 │   ├── outputs\
 │   │   └── AI动漫头像生成方案.md      # 本文档（唯一版本）
 │   ├── review\                         # 评审与过程材料（非交付物）
@@ -673,7 +673,7 @@ f:\zxc\Project\sdz-ptah\
 │   └── probe\                          # 宿主文生图实测样本（证据；含第三方角色图，公开前移出，见 10.1）
 ├── README.md                           # 项目说明、快速上手、许可与路线图摘要
 ├── skills\install.py                   # 把 skill 链接 / 复制到宿主技能目录
-├── skills\sdz-ptah-avatar\             # skill 实现；与 ai-anime-avatar 同级
+├── skills\sdz-ptah-avatar\             # skill 实现；与 design 同级
 │   ├── SKILL.md                        # 执行入口（宿主智能体按此执行）
 │   ├── scripts\
 │   │   ├── avatar_pipeline.py          # 闸门 + 裁切 + 导出（1.11.1）
@@ -778,7 +778,7 @@ f:\zxc\Project\sdz-ptah\
 ### 9.3 角色 IP 权属
 
 - 参考图（如 `satoshi-ref-2.png`）来自第三方作品，角色形象权利不属于本仓库。
-- **仓库不得分发**：参考图、由其生成的成品、以及可还原该角色的中间产物一律不提交。**现状**：仓库仍跟踪 `ai-anime-avatar/probe/` 与 `ai-anime-avatar/verify/raw/` 下的生成图，开源前需移出并替换为原创素材；建议同时在 `.gitignore` 中排除这些目录与订单侧的参考图 / 成品。
+- **仓库不得分发**：参考图、由其生成的成品、以及可还原该角色的中间产物一律不提交。**现状**：仓库仍跟踪 `design/probe/` 与 `design/verify/raw/` 下的生成图，开源前需移出并替换为原创素材；建议同时在 `.gitignore` 中排除这些目录与订单侧的参考图 / 成品。
 - 生成物使用边界：默认仅限本地 / 内部验证；对外展示、分发或商用前，须替换为原创角色或取得权利人授权。
 - 文档、示例与测试夹具中的角色，应使用原创或明确授权的素材。
 - 权属判断与授权范围需自行核实或咨询法律意见。
@@ -817,7 +817,7 @@ f:\zxc\Project\sdz-ptah\
 
 | # | 功能 / 工作 | 说明 | 依赖 | 完成标准 | 状态 |
 |-|-|-|-|-|-|
-| M0-1 | 移出第三方角色素材 | `ai-anime-avatar\probe\`、`verify\raw\` 等目录里的生成图，以及示例角色卡 `characters\satoshi.json`（第三方 IP，9.3）；`fox-armor.json` 逐个确认来源。**已提交的图仍在 git 历史中**：需重写历史，或新建一个不含历史的公开仓库 | — | 公开仓库的文件与历史里都没有第三方角色图片 | 未开始 |
+| M0-1 | 移出第三方角色素材 | `design\probe\`、`verify\raw\` 等目录里的生成图，以及示例角色卡 `characters\satoshi.json`（第三方 IP，9.3）；`fox-armor.json` 逐个确认来源。**已提交的图仍在 git 历史中**：需重写历史，或新建一个不含历史的公开仓库 | — | 公开仓库的文件与历史里都没有第三方角色图片 | 未开始 |
 | M0-2 | 原创示例角色 | 原创参考图 + 角色卡 + 示例 brief，替换 satoshi 作为文档示例、测试夹具和校准样本 | M0-1 | `SKILL.md` / `protocol.md` / README 的示例全部换成原创角色 | 未开始 |
 | M0-3 | 代码许可证 | 在 MIT 与 Apache-2.0 中选定（8 #9），根目录放 `LICENSE`；另建 `THIRD_PARTY_NOTICES.md` 列出依赖与模型许可（含 Gemma Notice 文本） | — | `LICENSE` 与第三方声明文件入库 | 未开始 |
 | M0-4 | `.gitignore` 补全 | 补上订单目录、`generation-pending.json`、`*-call-*.json`、模型权重（`*.safetensors` / `*.gguf` / `*.ckpt`）、`probe\` 与 `verify\raw\` | M0-1 | `git status` 不出现生成物与权重 | 未开始 |

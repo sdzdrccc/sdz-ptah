@@ -133,7 +133,7 @@
         0.112
       ]
     },
-    "source_file": "ai-anime-avatar/review/tv-frames-metrics.json",
+    "source_file": "design/review/tv-frames-metrics.json",
     "note": "样本仅 9 帧、1 个角色，属于初步参考，未定稿。饱和度下限 0.25 留了容差以覆盖 TV 最低 0.274；边缘密度上限 0.10 覆盖 TV 最大 0.097。旧版 gate 的边缘密度区间 0.010–0.045 与 TV 实测不符（TV 9 帧全部超过 0.045），因此已修正。",
     "status": "草稿，需更多样本（多角色、多场景）复核后才可转正"
   }

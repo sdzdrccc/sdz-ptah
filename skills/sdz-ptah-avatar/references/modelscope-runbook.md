@@ -296,7 +296,7 @@ py -3 "$skill\scripts\generate.py" --order $order --resume
 | `modelscope-minimax-h3-image` | `MiniMax/MiniMax-H3-Image` | 社区许可（年营收超 100 万美元或提供托管服务需书面授权） | 2 | **无负向通道**：brief 里带负向词会被静默丢弃，`check()` 返回 warning 提示改写为描述句；steps / guidance / size 均不发送（传了会 HTTP 400） |
 
 - 两者都标 `verified=false`：**真实 token 出图尚未验证**，第一次用按第 6 节三件事观察并写进报告。
-- `probe` 会显示「模型不在公开列表中」警告——生图模型本就不在对话清单 `/v1/models` 里，属已知误报，不是故障（详见 `ai-anime-avatar/review/魔搭API可用模型清单.md` 第 5 节）。
+- `probe` 会显示「模型不在公开列表中」警告——生图模型本就不在对话清单 `/v1/models` 里，属已知误报，不是故障（详见 `design/review/魔搭API可用模型清单.md` 第 5 节）。
 - 用 MiniMax 时提示词编译要把排除项写成正向描述句；负向词写了也不生效，别误以为闸门已过滤。
 - 两个模型都非商用许可叠加非商用免费推理服务，**只作内部测试**，不作为对外交付路线。
 
