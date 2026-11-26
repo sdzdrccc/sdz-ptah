@@ -717,6 +717,63 @@
         "steps": 8,
         "guidance": 1.0
       }
+    },
+    {
+      "id": "modelscope-moss-image-sft",
+      "display_name": "ModelScope 在线 · MOSS-Image-SFT（文生图）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "openmoss/MOSS-Image-SFT",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 0,
+        "reference_roles": [],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328
+        ],
+        "stages": [
+          "single"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "openmoss/MOSS-Image-SFT",
+        "version": "sft"
+      },
+      "license": {
+        "id": "Apache-2.0（权重）",
+        "commercial_use": true,
+        "redistribute_weights": true,
+        "notes": "权重 Apache-2.0，可商用可再分发；但**魔搭免费推理服务条款另计**（非商用、动态限流），商用须自托管权重——权重许可与服务条款不是一回事"
+      },
+      "note": "2026-11-26 由大人提供模型页登记：https://modelscope.cn/models/openmoss/MOSS-Image-SFT 。任务类型为文生图（text-to-image-synthesis），**不接受参考图**，故 reference_max=0、只支持 single 阶段；steps/guidance 为经验默认值，待实测校准。【2026-11-26 实测】1024² 真出（RGB 0.93MB），耗时 28.3s，params.size 正确下发。质量：单角色正面胸像、脸颊三道闪电纹正确、背景近纯色平涂；问题：**角色被画成熟青年**（下颌偏长，不是 10–12 岁圆脸）、头发不够尖刺外炸、帽徽变成绿色弧线。因为是纯文生图（无参考图通道），角色一致性只能靠提示词，这是年龄漂移的根因；仅 1024 尺寸已实测。",
+      "defaults": {
+        "steps": 30,
+        "guidance": 4.0
+      }
     }
   ]
 }
