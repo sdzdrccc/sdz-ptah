@@ -589,6 +589,134 @@
         "notes": "社区许可：年化营收超 100 万美元或向第三方提供托管服务须获 MiniMax 书面授权；免费推理服务非商用、动态限流；2 魔粒/次；参考图会发往远端，需 egress_consent"
       },
       "note": "网页端实测（方案文档 C.5）6 步出 4096² 图、线条清晰，但许可与开放权重情况比 Qwen-Image-2.1 复杂。API 硬限制：negative_prompt 传了直接 HTTP 400（注册表已设 negative_prompt=false，brief 里带了也会被适配器忽略）；steps/guidance 只能用默认值（否则 400，已用 steps_param/guidance_param=false 关闭发送）；原生建议 16MP（4096²），API 侧 size 未开放该档，画布仍走 1024。最多 16 张参考图。适配器已实现，待真实 token 出图验证。【2026-11-26 实测】size_param 已由 false 改为 true：带 size 请求 2048 真实出 2048×2048（113s，RGB）；请求 4096 被服务端拒绝 HTTP 400「width must be integer in [64,2048]」。即 API 上限 2048，网页端的 4096² 属网页通道能力，API 不给。"
+    },
+    {
+      "id": "modelscope-qwen-image-2.1-turbo",
+      "display_name": "ModelScope 在线 · Qwen-Image-2.1 Turbo（8 步加速）",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "Qwen/Qwen-Image-2.1-Turbo",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 10,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328,
+          1664,
+          2048
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "Qwen/Qwen-Image-2.1-Turbo",
+        "version": "2.1-turbo"
+      },
+      "license": {
+        "id": "Qwen Research License（模型权重）+ ModelScope 免费推理服务条款（服务）",
+        "commercial_use": false,
+        "redistribute_weights": false,
+        "notes": "研究许可，非商用；免费推理服务动态限流；参考图会外发，需 egress_consent"
+      },
+      "note": "2026-11-26 由魔搭模型选择器截图登记。官方标注 8 步生成，故 defaults 设 steps=8、guidance=1.0（数值为经验猜测，待出图后按画质校准）。能力与许可同 Qwen-Image-2.1，尺寸上限待实测。【2026-11-26 实测】1024² 真实出图成功（RGBA，0.96MB），耗时 192.9s（名为 Turbo 但比 Qwen-Image-2.1 的 2048 还慢，疑为排队）；steps=8/guidance=1.0 为经验值。质量问题：出现第二角色（皮卡丘，违反负向词）、构图偏四分之三侧脸、暖黄偏色、背景非纯色平涂。⇒ 可用但需调参（抬高 guidance 或改用默认 steps）后再评估；仅 1024 尺寸已实测。",
+      "defaults": {
+        "steps": 8,
+        "guidance": 1.0
+      }
+    },
+    {
+      "id": "modelscope-krea-2-turbo",
+      "display_name": "ModelScope 在线 · Krea-2 Turbo",
+      "engine": "http_modelscope",
+      "available": true,
+      "verified": true,
+      "external_reproducible": false,
+      "data_egress": true,
+      "modelscope": {
+        "url": "https://api-inference.modelscope.cn",
+        "model": "krea/Krea-2-Turbo",
+        "image_input": "data_uri",
+        "poll_s": 5,
+        "timeout_s": 600,
+        "min_interval_s": 2
+      },
+      "capabilities": {
+        "seed": true,
+        "negative_prompt": true,
+        "steps": true,
+        "guidance": true,
+        "reference_max": 10,
+        "reference_roles": [
+          "identity",
+          "style",
+          "outfit"
+        ],
+        "batch_max": 1,
+        "sizes": [
+          1024,
+          1328,
+          1664,
+          2048
+        ],
+        "stages": [
+          "single",
+          "identity"
+        ],
+        "prompt_style": "natural_zh"
+      },
+      "secrets": {
+        "token_env": "MODELSCOPE_TOKEN"
+      },
+      "policy": {
+        "retry": 1,
+        "backoff_s": 5,
+        "max_concurrency": 1
+      },
+      "model": {
+        "name": "krea/Krea-2-Turbo",
+        "version": "2-turbo"
+      },
+      "license": {
+        "id": "待核实（魔搭模型页为准）",
+        "commercial_use": null,
+        "redistribute_weights": null,
+        "notes": "许可尚未核实——按项目规矩，商用前必须逐个核对，未核实不得作为交付默认后端"
+      },
+      "note": "2026-11-26 由魔搭模型选择器截图登记。Turbo 系加速模型，defaults 的 steps/guidance 为经验猜测。**许可未核实，商用前须核对**；尺寸与能力上限待实测。【2026-11-26 实测】1024² 真实出图成功（RGB，0.90MB），耗时仅 23.5s，是目前最快的在线后端。质量问题：帽徽变成绿色弧线、眼睛多出睫毛（偏少女漫画）、缺脸颊闪电纹、背景为米色渐变非纯色平涂；但单角色、正面胸像、赛璐璐硬边基本达标。**许可仍未核实，商用前必须核对**。仅 1024 尺寸已实测。",
+      "defaults": {
+        "steps": 8,
+        "guidance": 1.0
+      }
     }
   ]
 }

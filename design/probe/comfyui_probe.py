@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
-"""ComfyUI 能力探针（只读）：枚举本地 checkpoint、关键节点与显存，并与注册表比对。
+"""ComfyUI 能力探针（只读）：枚举 checkpoint、关键节点与显存，并与注册表比对。
+
+适用于任意 ComfyUI 实例——本地（127.0.0.1:8188）或魔搭创空间托管的在线实例。
 
 用法：
     py -3 design/probe/comfyui_probe.py
     py -3 design/probe/comfyui_probe.py --url http://127.0.0.1:8189
+    py -3 design/probe/comfyui_probe.py --url https://xxx.ms.show --header "Authorization: Bearer xxx"
 
 做的事（全部是 GET，不提交任何任务、不生成图）：
     1. /system_stats        版本与显存
@@ -38,22 +41,39 @@ KEY_NODES = [
 ]
 
 
-def get(url, timeout=5):
-    with request.urlopen(url, timeout=timeout) as r:
+def get(url, timeout=5, headers=None):
+    req = request.Request(url, headers=headers or {})
+    with request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default="http://127.0.0.1:8188")
+    ap.add_argument("--url", default="http://127.0.0.1:8188",
+                    help="ComfyUI 地址，本地或魔搭创空间均可")
+    ap.add_argument("--header", action="append", default=[],
+                    help='自定义请求头，可重复，如 --header "Authorization: Bearer xxx"')
+    ap.add_argument("--token", default=None,
+                    help="便捷开关：等价于 --header \"Authorization: Bearer <token>\"")
     args = ap.parse_args()
     base = args.url.rstrip("/")
 
+    headers = {}
+    for h in args.header:
+        if ":" in h:
+            k, v = h.split(":", 1)
+            headers[k.strip()] = v.strip()
+    if args.token:
+        headers["Authorization"] = "Bearer " + args.token
+
     try:
-        stats = get(base + "/system_stats")
-    except (error.URLError, OSError) as exc:
+        stats = get(base + "/system_stats", headers=headers)
+    except (error.URLError, error.HTTPError, OSError) as exc:
         print("连不上 ComfyUI（%s）：%s" % (base, exc))
-        print("→ 先把 ComfyUI 启动起来，再用 --url 指定实际地址。")
+        if isinstance(exc, error.HTTPError) and exc.code in (401, 403):
+            print("→ 该实例需要登录态，用 --header 或 --token 传入凭据后重试。")
+        else:
+            print("→ 确认地址与端口；本地实例需先启动，创空间实例需确认已开机。")
         return 2
 
     sysinfo = (stats.get("system") or {})
