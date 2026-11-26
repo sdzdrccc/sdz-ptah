@@ -152,6 +152,14 @@ function schemes() {
   return [...map.values()].sort((a, b) => rank(a.id) - rank(b.id));
 }
 
+function schemeSummary(s) {
+  const items = state.models.filter((m) => schemeOf(m) === s.id);
+  const ok = items.filter((m) => m.selectable).length;
+  const cur = model();
+  const curLine = cur && items.some((m) => m.id === cur.id) ? ` · 当前：${shortName(cur)}` : "";
+  return `共 ${items.length} 个模型，可用 ${ok} 个${curLine}`;
+}
+
 function renderSchemes() {
   const box = $("schemeList");
   const list = schemes();
@@ -162,7 +170,7 @@ function renderSchemes() {
   }
   box.innerHTML = list.map((s) => `
     <button type="button" class="scheme ${s.id === state.schemeId ? "active" : ""}" data-scheme="${esc(s.id)}"
-      aria-pressed="${s.id === state.schemeId}">
+      title="${esc(schemeSummary(s))}" aria-pressed="${s.id === state.schemeId}">
       <span class="scheme-name">${esc(s.id)}</span>
       <span class="scheme-meta">${s.total} 个模型 · ${s.ok ? "可用 " + s.ok : "当前不可用"}</span>
     </button>`).join("");
@@ -177,23 +185,20 @@ function renderSchemeDetail() {
     box.innerHTML = "";
     return;
   }
-  const items = state.models.filter((m) => schemeOf(m) === id);
   const s = schemes().find((x) => x.id === id);
   const notes = [];
   if (s && !s.ok) notes.push("这个方案下的模型当前都不可用。");
   if (id === "宿主工具") notes.push("宿主工具只能在 Agnes / TRAE 的 agent 会话里执行，网页只能生成调用单。");
   if (id === "本机 ComfyUI") notes.push("需要本机 ComfyUI 服务已启动，且工作流已导出。");
-  const ok = items.filter((m) => m.selectable).length;
-  const cur = model();
-  const curLine = cur && items.some((m) => m.id === cur.id)
-    ? `当前：<b>${esc(shortName(cur))}</b>`
-    : "尚未选择模型";
+  // 模型数量与「当前：xxx」改为悬停在方案卡上看（title），这里只保留确实需要常驻的提示；
+  // 没有提示就整块不占位，避免方案区多出空行。
+  if (!notes.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
   box.hidden = false;
-  // 方案卡只表达「走哪条通道」，这里只给一行摘要；
-  // 换模型统一走「模型管理 → 选择模型」，避免页面出现两个入口。
-  box.innerHTML = `
-    ${notes.map((x) => `<p class="scheme-note">${esc(x)}</p>`).join("")}
-    <p class="scheme-note">共 ${items.length} 个模型，可用 ${ok} 个 · ${curLine}</p>`;
+  box.innerHTML = notes.map((x) => `<p class="scheme-note">${esc(x)}</p>`).join("");
 }
 
 function renderModelList() { /* 模型区改为 renderModelArea */ }
