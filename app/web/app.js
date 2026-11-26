@@ -218,7 +218,8 @@ function renderModelArea() {
 
   const list = $("loraList");
   if (!state.loras.length) {
-    list.innerHTML = '<p class="small">未添加 LoRA。</p>';
+    // 空态不写占位文案：这一格只留下面的「＋ 添加 LoRA」按钮，省一行且不啰嗦
+    list.innerHTML = "";
   } else {
     list.innerHTML = state.loras.map((x, k) => `
       <div class="lora-card">
