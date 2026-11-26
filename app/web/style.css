@@ -347,9 +347,18 @@ input[type=range]:focus { box-shadow: none; }
 }
 .seg button .q { color: var(--amber); }
 .seg button.active .q { color: #FFE2B3; }
-.ratio-wrap { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 14px; align-items: start; }
+/* 尺寸列：左侧预览框跨两行，右侧依次是选项卡与比例/长边 */
+.size-col { display: grid; grid-template-columns: 120px minmax(0, 1fr); grid-template-rows: auto auto auto; gap: 8px 14px; align-items: start; }
+/* 选项卡独占一行，避免被 120px 预览框挤到文字竖排 */
+.size-col > .f.inline-tabs { grid-column: 1 / -1; grid-row: 1; }
+.size-col > .f.inline-tabs .seg.wide { grid-auto-columns: 1fr; }
+/* 预览框跨下面两行 */
+.size-col > .ratio-box { grid-column: 1; grid-row: 2 / span 2; width: 120px; height: 120px; }
+.size-col > #sizePreset, .size-col > #sizeCustom { grid-column: 2; grid-row: 2; }
+.size-col > #sizeNote { grid-column: 2; grid-row: 3; }
+.size-col > .name-field { grid-column: 1 / -1; }
 .ratio-box {
-  width: 84px; height: 84px; display: flex; align-items: center; justify-content: center;
+  width: 120px; height: 120px; display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2);
 }
 .ratio-shape {

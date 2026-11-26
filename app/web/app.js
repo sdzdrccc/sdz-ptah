@@ -389,7 +389,7 @@ function renderSize() {
 
   const [w, h] = currentSize();
   const r = (m.ratios || []).find((x) => x.id === state.ratio) || { w: 1, h: 1 };
-  const box = 76;
+  const box = 96;
   const sw = r.w >= r.h ? box : Math.round(box * r.w / r.h);
   const sh = r.w >= r.h ? Math.round(box * r.h / r.w) : box;
   $("ratioShape").style.width = `${sw}px`;
