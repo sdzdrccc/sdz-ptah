@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2026 sdzdrccc
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+======================================================================
+关于生成图片（不在上述 MIT 授权范围内）
+======================================================================
+
+上面的 MIT 许可只覆盖**本仓库的代码与文档**。
+
+以下内容不属于本仓库，也不随本仓库授权：
+
+1. **生成出来的图片**。它们由第三方模型服务或本地模型产出，其授权取决于
+   对应模型与服务的条款（各模型页 / 各平台协议为准），不由本仓库决定。
+2. **角色形象与美术设定**。若生成结果与某部作品的既有角色相似，该形象的
+   权利归原作者与权利方所有。本项目仅用于个人学习、研究与技术验证，
+   **不代表获得任何角色授权**。
+3. **模型权重**。仓库不附带任何模型权重文件，权重请自行从各模型页获取，
+   并遵守其自身许可。
+
+因此：本仓库不附带任何生成图片；克隆者自行生成的内容，其使用、传播与
+商用风险由使用者自行承担。

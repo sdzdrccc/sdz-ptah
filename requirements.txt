@@ -1,0 +1,3 @@
+# 运行时依赖。本项目刻意只用标准库 + Pillow：
+# 不需要 numpy / OpenCV / torch（本地 ComfyUI 路线由外部服务承担推理）。
+Pillow>=10.0
