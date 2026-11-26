@@ -164,8 +164,11 @@ class MiniMaxAdapter(Adapter):
                 "size": self._size(req),
                 "response_format": self.response_format,
                 "output_format": self.output_format}
-        if self.disable_prompt_enhanced:
-            # 关闭增强时官方要求必须给定尺寸（我们已显式传 size，满足该约束）
+        if self.disable_prompt_enhanced and not image_refs:
+            # 只有文生图可关；图片编辑「prompts are always enhanced」，
+            # 带上这个字段会被直接拒绝：
+            # HTTP 400 invalid params, disable_prompt_enhanced is not supported
+            # for image edits, prompts are always enhanced (2013)
             body["disable_prompt_enhanced"] = True
         if image_refs:
             body["images"] = [{"image_url": u} for u in image_refs]
@@ -182,13 +185,12 @@ class MiniMaxAdapter(Adapter):
             err = first["error"]
             raise AdapterError("MiniMax 单张失败（%s）：%s"
                                % (err.get("code"), err.get("message")))
-        url = first.get("url")
-        if not url:
-            if first.get("b64_json"):
-                return None, first["b64_json"], first.get("size"), resp
+        item = {"url": first.get("url"), "b64": first.get("b64_json"),
+                "size": first.get("size"), "revised_prompt": first.get("revised_prompt")}
+        if not item["url"] and not item["b64"]:
             raise AdapterError("MiniMax 返回项既无 url 也无 b64_json：%s"
                                % json.dumps(first, ensure_ascii=False)[:300])
-        return url, None, first.get("size"), resp
+        return item, resp
 
     def generate(self, req, out_dir):
         warnings = self.check(req)
@@ -200,25 +202,30 @@ class MiniMaxAdapter(Adapter):
         if req.init_image:
             refs = [req.init_image] + refs
         image_refs = [self._image_ref(p) for p in refs]
+        if image_refs and self.disable_prompt_enhanced:
+            # 编辑通道强制增强，我们的提示词会被官方二次改写，必须如实告知
+            warnings.append("官方图片编辑通道强制开启 Prompt 增强（不接受 disable_prompt_enhanced），"
+                            "本张提示词经服务端改写；实际用词已记入 params.revised_prompts")
         seeds = self.pick_seeds(req)
-        images, calls, t0, sizes = [], 0, time.time(), []
+        images, calls, t0, sizes, revised = [], 0, time.time(), [], []
         try:
             for i, _seed in enumerate(seeds):
                 body = self._payload(req, image_refs)
-                url, b64, size_text, resp = self.with_retry(self._run_once, body, bool(image_refs))
+                item, _resp = self.with_retry(self._run_once, body, bool(image_refs))
                 calls += 1
                 idx = req.start_index + i
                 stem = os.path.join(out_dir, os.path.splitext(output_name(req.prefix, idx))[0])
-                if url:
-                    dest = self.with_retry(self._download, url, stem)
+                if item["url"]:
+                    dest = self.with_retry(self._download, item["url"], stem)
                 else:
                     # 未启用 b64 时不会走到这里；保留以便将来切 response_format
                     dest = stem + "." + self.output_format.lower()
                     with open(dest, "wb") as f:
-                        f.write(base64.b64decode(b64))
+                        f.write(base64.b64decode(item["b64"]))
                 w, h = image_size(dest)
                 images.append(GeneratedImage(dest, idx, None, w, h, sha256_of(dest)))
-                sizes.append(size_text)
+                sizes.append(item["size"])
+                revised.append(item["revised_prompt"])
         except AdapterError as e:
             e.calls_used = calls
             raise
@@ -229,6 +236,7 @@ class MiniMaxAdapter(Adapter):
                   "reference_count": len(image_refs),
                   "image_input": "data_uri" if image_refs else None,
                   "returned_sizes": sizes,
+                  "revised_prompts": revised,
                   "seed": None, "negative_prompt": False, "steps": None, "guidance": None}
         ok, why = self.reproducibility(seeds, probe["env"])
         return GenerationResult(

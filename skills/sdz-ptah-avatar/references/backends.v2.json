@@ -788,7 +788,7 @@
       "display_name": "MiniMax 官方 API · H3-Image",
       "engine": "http_minimax",
       "available": true,
-      "verified": false,
+      "verified": true,
       "external_reproducible": false,
       "data_egress": true,
       "minimax": {
@@ -842,7 +842,7 @@
         "redistribute_weights": null,
         "notes": "官方付费 API，商用范围以平台协议为准（本次未逐条核对，商用前须确认）；参考图会发往远端，需 egress_consent"
       },
-      "note": "2026-11-26 按官方文档登记：https://platform.minimax.cn/docs/guides/image-generation 。同步接口（无 task_id、无需轮询）；面积上限 20,000,000 像素，**4096×4096 合法**，这是与魔搭网关（上限 2048）的关键差别。无 seed / 负向词 / steps / guidance，故可复现恒为 false、负向词会被忽略。参考图 1–16 张，走 /v1/images/edits。默认关掉 Prompt 增强（disable_prompt_enhanced=true），避免编译好的提示词被二次改写。**尚未实测**：需要环境变量 MINIMAX_API_KEY。"
+      "note": "2026-11-26 按官方文档登记：https://platform.minimax.cn/docs/guides/image-generation 。同步接口（无 task_id、无需轮询）；面积上限 20,000,000 像素，**4096×4096 合法**，这是与魔搭网关（上限 2048）的关键差别。无 seed / 负向词 / steps / guidance，故可复现恒为 false、负向词会被忽略。参考图 1–16 张，走 /v1/images/edits。默认关掉 Prompt 增强（disable_prompt_enhanced=true），避免编译好的提示词被二次改写。**尚未实测**：需要环境变量 MINIMAX_API_KEY。【2026-11-26 实测】① 文生图 4096×4096 **原生真出**（16.45s，17.98MB，服务端 returned_sizes 一致），这是本项目第一张真原生 4K。② 图片编辑通道带参考图请求可正常发出，但输出被内容审核拦截：HTTP 422「all 1 images failed content safety check (1027)」，usage.generated_images=0 即**不计费**。判断为输出图与版权角色高度相似触发了 IP 审核（提示词正文并未含角色名）。③ 编辑通道强制开启 Prompt 增强，传 disable_prompt_enhanced 会 400：「not supported for image edits, prompts are always enhanced (2013)」，故适配器只在文生图下发该字段，并把服务端返回的 revised_prompt 记进 params。⇒ 想用编辑通道做头像，需先做形象去 IP 化，否则会被审核挡。"
     },
     {
       "id": "minimax-official-h3-highspeed",
