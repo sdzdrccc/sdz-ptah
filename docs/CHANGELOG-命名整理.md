@@ -5,6 +5,11 @@
 - **依据**：`CONVENTIONS.md`（命名与目录规范）
 - **原则**：先定规范、再动文件；改一处、回写引用；历史日志不改；可回退
 
+> **阅读提示（2026-11-26 12:42 补）**：本文是当时快照，正文保留当时的路径名，不回改。
+> 若文中出现旧名，对应现行名称如下：`ai-anime-avatar/` → `design/`、`avatar-orders/` → `orders/`、
+> `orders/avatar/`（原 `avatar-orders/avatar/`）→ `orders/satoshi/`、`sdz-ptah-app/` → `app/`。
+> 现行结构以 `CONVENTIONS.md` 第 1 节表格为准。
+
 ---
 
 ## 一、总览

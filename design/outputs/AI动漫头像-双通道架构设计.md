@@ -4,7 +4,7 @@
 |-|-|
 | 文档用途 | 架构基线 / 实施依据 / 评审对象 |
 | 状态 | **方案定稿，未实施**。本文只描述设计，不含已验证的实现 |
-| 适用范围 | `sdz-ptah-app/` 控制台与 `skills/sdz-ptah-avatar/` 流水线的接入层；不改变生成算法与评分阈值 |
+| 适用范围 | `app/` 控制台与 `skills/sdz-ptah-avatar/` 流水线的接入层；不改变生成算法与评分阈值 |
 | 依赖的现有文档 | `README.md`、`references/protocol.md`、`AI动漫头像-后端适配器接口设计.md`、`AI动漫头像生成方案.md` |
 | 关键前提 | **不部署 ComfyUI、不租 GPU**；阶段一生成后端只有 ModelScope 在线推理 |
 | 决策日期 | 2026-11-25 |
@@ -74,7 +74,7 @@
            └──────────────┬────────────────┘
                           ▼
         ┌────────────────────────────────────────┐
-        │  sdz-ptah-app/server.py                 │
+        │  app/server.py                          │
         │  ├─ 互斥检查（channel 无关）             │
         │  ├─ 订单读写（brief/rounds/status）      │
         │  └─ 以子进程调用 skills/scripts/*.py     │
@@ -324,7 +324,7 @@ if not text or text in (".", ".."):
 
 **兼容性**：既有 ASCII 目录名（`satoshi`、`fox-armor`、`tv-anime-cel`）逐字节不变，已由测试锁定。唯一行为变化是连续短横会被合并（`a--b` → `a-b`），仓库内无此类目录。
 
-**验证**：`sdz-ptah-app/tests/` 下 **30 项测试**全部通过，含真实建目录、`rounds.json` 落盘，以及直接运行 `rounds.py` 子进程验证 stdout 可被 `last_json` 解析。已验证范围：进程内 API 调用 + 临时目录，**未验证浏览器与 agent 通道的真实网络流程**。
+**验证**：`app/tests/` 下 **30 项测试**全部通过，含真实建目录、`rounds.json` 落盘，以及直接运行 `rounds.py` 子进程验证 stdout 可被 `last_json` 解析。已验证范围：进程内 API 调用 + 临时目录，**未验证浏览器与 agent 通道的真实网络流程**。
 
 **C2：上传是 base64 data URL，20MB 上限**
 
@@ -470,20 +470,20 @@ if not text or text in (".", ".."):
 
 | # | 文件 | 位置 | 改动 | 规模 |
 |-|-|-|-|-|
-| 1 | `sdz-ptah-app/server.py` | `safe_name()` | 委托 `path_names.safe_slug`（✅ 已完成） | ~10 行 |
+| 1 | `app/server.py` | `safe_name()` | 委托 `path_names.safe_slug`（✅ 已完成） | ~10 行 |
 | 1b | `skills/.../scripts/path_names.py` | 新增 | 共享 slug 规则（✅ 已完成） | ~75 行 |
 | 1c | `rounds.py` / `confirm_order.py` / `generate.py` | 136 / 126 / 95 | 改用共享规则（✅ 已完成） | 各 1–3 行 |
-| 1d | `sdz-ptah-app/server.py` | `last_json()` | 支持多行 JSON（✅ 已完成） | ~12 行 |
-| 2 | `sdz-ptah-app/server.py` | `create_order()` ~333 | 接收并写入 `channel` | ~10 行（✅ 2026-11-25，待跑测试） |
-| 3 | `sdz-ptah-app/server.py` | `confirm_order()` ~439 | `--source` 按 channel 映射 | ~5 行（✅ 2026-11-25，待跑测试） |
-| 4 | `sdz-ptah-app/server.py` | `upload_reference()` 388 | 入库前压缩 | ~25 行（✅ 2026-11-25，新模块 `image_prep.py`，模块已实测，服务接入待跑测试） |
-| 5 | `sdz-ptah-app/server.py` | `_dispatch()` ~581 | 退出码 → HTTP 状态映射 | ~30 行（✅ 2026-11-25，新模块 `api_errors.py`，待跑测试） |
-| 6 | `sdz-ptah-app/server.py` | 新模块 `orderlock.py` | 互斥锁 | ~45 行（✅ 2026-11-25，`orderlock.py`，待跑测试） |
+| 1d | `app/server.py` | `last_json()` | 支持多行 JSON（✅ 已完成） | ~12 行 |
+| 2 | `app/server.py` | `create_order()` ~333 | 接收并写入 `channel` | ~10 行（✅ 2026-11-25，待跑测试） |
+| 3 | `app/server.py` | `confirm_order()` ~439 | `--source` 按 channel 映射 | ~5 行（✅ 2026-11-25，待跑测试） |
+| 4 | `app/server.py` | `upload_reference()` 388 | 入库前压缩 | ~25 行（✅ 2026-11-25，新模块 `image_prep.py`，模块已实测，服务接入待跑测试） |
+| 5 | `app/server.py` | `_dispatch()` ~581 | 退出码 → HTTP 状态映射 | ~30 行（✅ 2026-11-25，新模块 `api_errors.py`，待跑测试） |
+| 6 | `app/server.py` | 新模块 `orderlock.py` | 互斥锁 | ~45 行（✅ 2026-11-25，`orderlock.py`，待跑测试） |
 | 7 | `skills/.../confirm_order.py` | 199 | `--source` choices 扩展 | 2 行（✅ 2026-11-25，待跑测试） |
 | 8 | `skills/.../rounds.py` | `save_ledger()` 234 | 临时文件 + `os.replace` 原子写 | ~10 行（✅ 已有） |
-| 9 | `sdz-ptah-app/web/index.html` | 建单表单 | 肤色色板、表情输入 | ~40 行 |
-| 10 | `sdz-ptah-app/web/app.js` | ~225 | 新字段提交、编译结果回显 | ~35 行 |
-| 11 | `sdz-ptah-app/config.json` | — | 增 `lock_ttl_s`、`image_max_edge` | 2 行（`lock_ttl_s` ✅，`image_max_edge` ✅） |
+| 9 | `app/web/index.html` | 建单表单 | 肤色色板、表情输入 | ~40 行 |
+| 10 | `app/web/app.js` | ~225 | 新字段提交、编译结果回显 | ~35 行 |
+| 11 | `app/config.json` | — | 增 `lock_ttl_s`、`image_max_edge` | 2 行（`lock_ttl_s` ✅，`image_max_edge` ✅） |
 
 **合计约 220 行，不含测试。** 无新增第三方依赖。
 

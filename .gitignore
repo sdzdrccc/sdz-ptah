@@ -13,10 +13,10 @@ __pycache__/
 orders/
 
 # 本地上传缓存：网页控制台的参考图上传，运行时产生，不入库
-sdz-ptah-app/uploads/
+app/uploads/
 
 # 运行时生成的用户自定义角色/风格档案
-sdz-ptah-app/custom/
+app/custom/
 
 # 临时安全网备份：变更前的 .bak 快照，不入库
 *.bak-*

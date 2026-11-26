@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """safe_name() 的回归测试：中文、路径穿越、保留设备名、幂等、真实建目录。
 
-运行（在 sdz-ptah-app 目录下）：
+运行（在 app 目录下）：
     py -3 -m unittest discover -s tests -v
 """
 

@@ -207,7 +207,7 @@ sdz-ptah/
 │           ├── styles/                # 风格档案（tv-anime-cel / solidbg / realistic-armor）
 │           ├── characters/            # 角色卡（外形特征 + 人工核对清单）
 │           └── prompt-examples/       # 提示词样例
-├── sdz-ptah-app/                      # 本地网页控制台（服务 + 前端 + 测试）
+├── app/                               # 本地网页控制台（服务 + 前端 + 测试）
 │   ├── server.py / simple_input.py / image_prep.py
 │   ├── orderlock.py / api_errors.py   # 订单互斥锁、错误码映射
 │   ├── config.json / start.bat        # 配置（端口 8766）/ Windows 双击启动
