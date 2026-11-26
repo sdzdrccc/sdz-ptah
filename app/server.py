@@ -83,6 +83,15 @@ def orders_root():
     return CONFIG["orders_root"]
 
 
+def default_order_name():
+    """未填写「保存名称」时的默认目录名：按本地时间生成，保证每单不同。
+
+    以前这里固定兜底成 "avatar"，导致所有未命名的订单都堆进同一个目录，
+    分不出是新单还是续跑。改用时间戳后，目录名自带唯一性与可排序性。
+    """
+    return "avatar-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
 def safe_name(value):
     r"""把任意输入规整成单个路径段（目录名 / 文件主干），保留中文等 Unicode 字母。
 
@@ -948,7 +957,7 @@ class Handler(BaseHTTPRequestHandler):
 
             payload = self._read_json()
             if path == "/api/generate":
-                character = safe_name((payload or {}).get("name") or "avatar")
+                character = safe_name((payload or {}).get("name") or default_order_name())
                 with locked(os.path.join(orders_root(), character), (payload or {}).get("channel")):
                     result = simple_generate(payload)
                 return self._result(result)

@@ -466,10 +466,17 @@ function setRefFile(file) {
     : DEFAULT_REF_INFO;
 }
 
+// 默认保存名称：按本地时间生成唯一目录名，避免每单都落进同一个 avatar 目录
+function defaultName() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `avatar-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
 function resetForm() {
   state.current = null;
   state.detail = null;
-  $("nameInput").value = "avatar";
+  $("nameInput").value = defaultName();
   $("positiveInput").value = "";
   $("negativeInput").value = "";
   $("seedInput").value = -1;
@@ -721,7 +728,7 @@ async function submit(dry) {
   log(`开始${label}…（${shortName(m)} · ${w}×${h} · ${state.count} 张）`);
   try {
     const payload = {
-      name: $("nameInput").value.trim() || "avatar",
+      name: $("nameInput").value.trim() || defaultName(),
       positive,
       negative: c.negative_prompt ? $("negativeInput").value.trim() : "",
       model: m.id,
@@ -1007,6 +1014,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  $("nameInput").value = defaultName();
   try {
     await refreshMeta();
     await refreshModels();
